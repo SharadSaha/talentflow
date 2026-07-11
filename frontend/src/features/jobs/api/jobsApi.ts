@@ -41,8 +41,9 @@ export const jobsApi = baseApi.injectEndpoints({
     }),
 
     getJob: builder.query<Job, string>({
+      // The endpoint wraps the payload as `data: { job }`.
       query: (id) => API_ENDPOINTS.JOBS.byId(id),
-      transformResponse: (response: ApiSuccessResponse<Job>) => response.data,
+      transformResponse: (response: ApiSuccessResponse<{ job: Job }>) => response.data.job,
       providesTags: (_result, _error, id) => [{ type: CACHE_TAGS.Job, id }],
     }),
   }),

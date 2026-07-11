@@ -37,6 +37,7 @@ export const HR_NAV_ITEMS: NavItem[] = [
   { label: 'Jobs', to: ROUTES.HR.JOBS, icon: Briefcase },
   { label: 'Applicants', to: ROUTES.HR.APPLICANTS, icon: Users },
   { label: 'Profile', to: ROUTES.HR.PROFILE, icon: UserCircle },
+  { label: 'Settings', to: ROUTES.HR.SETTINGS, icon: Settings },
 ];
 
 /** Returns the navigation menu for the given role. */

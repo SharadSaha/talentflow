@@ -54,3 +54,48 @@ export const APPLICATION_STATUS_FILTER_OPTIONS: { value: ApplicationStatus; labe
   value: status,
   label: APPLICATION_STATUS_META[status].label,
 }));
+
+/**
+ * Statuses an HR user may set via the status-update endpoint. `APPLIED` is the
+ * initial state and `WITHDRAWN` is candidate-only, so neither is HR-settable.
+ * Mirrors the backend `HR_SETTABLE_STATUSES`.
+ */
+export const HR_SETTABLE_STATUSES = [
+  APPLICATION_STATUS.UNDER_REVIEW,
+  APPLICATION_STATUS.SHORTLISTED,
+  APPLICATION_STATUS.INTERVIEW,
+  APPLICATION_STATUS.OFFERED,
+  APPLICATION_STATUS.HIRED,
+  APPLICATION_STATUS.REJECTED,
+] as const;
+
+/**
+ * Allowed HR-driven status transitions, mirroring the backend state machine.
+ * The pipeline flows APPLIED → UNDER_REVIEW → SHORTLISTED → INTERVIEW → OFFERED
+ * → HIRED, with REJECTED reachable from any active state; terminal states admit
+ * no changes. Used to offer only valid next statuses in the UI (the backend
+ * remains the source of truth).
+ */
+const HR_TRANSITIONS: Record<ApplicationStatus, ApplicationStatus[]> = {
+  [APPLICATION_STATUS.APPLIED]: [
+    APPLICATION_STATUS.UNDER_REVIEW,
+    APPLICATION_STATUS.SHORTLISTED,
+    APPLICATION_STATUS.REJECTED,
+  ],
+  [APPLICATION_STATUS.UNDER_REVIEW]: [
+    APPLICATION_STATUS.SHORTLISTED,
+    APPLICATION_STATUS.INTERVIEW,
+    APPLICATION_STATUS.REJECTED,
+  ],
+  [APPLICATION_STATUS.SHORTLISTED]: [APPLICATION_STATUS.INTERVIEW, APPLICATION_STATUS.REJECTED],
+  [APPLICATION_STATUS.INTERVIEW]: [APPLICATION_STATUS.OFFERED, APPLICATION_STATUS.REJECTED],
+  [APPLICATION_STATUS.OFFERED]: [APPLICATION_STATUS.HIRED, APPLICATION_STATUS.REJECTED],
+  [APPLICATION_STATUS.HIRED]: [],
+  [APPLICATION_STATUS.REJECTED]: [],
+  [APPLICATION_STATUS.WITHDRAWN]: [],
+};
+
+/** The valid next statuses an HR user may move an application to. */
+export function getHrNextStatuses(current: ApplicationStatus): ApplicationStatus[] {
+  return HR_TRANSITIONS[current];
+}

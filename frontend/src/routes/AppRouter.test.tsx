@@ -9,6 +9,7 @@ import { USER_ROLE } from '@/constants/roles';
 import { AuthBootstrap } from '@/providers/AuthBootstrap';
 import { ThemeProvider } from '@/providers/theme/ThemeProvider';
 import { routes } from '@/routes/route-config';
+import { makeHrDashboard } from '@/test/fixtures';
 import { makeStore } from '@/store';
 import type { CandidateDashboard } from '@/types/dashboard';
 
@@ -18,6 +19,15 @@ const candidate = {
   firstName: 'Ada',
   lastName: 'Lovelace',
   role: USER_ROLE.CANDIDATE,
+  createdAt: '2026-01-01T00:00:00.000Z',
+};
+
+const hr = {
+  id: '2',
+  email: 'hr@talentflow.test',
+  firstName: 'Grace',
+  lastName: 'Hopper',
+  role: USER_ROLE.HR,
   createdAt: '2026-01-01T00:00:00.000Z',
 };
 
@@ -117,14 +127,33 @@ describe('AppRouter', () => {
 
   it('restores an authenticated session and lands on the candidate dashboard', async () => {
     mockApi([
-      // `/auth/me` wraps the user (data: { user }); the dashboard is unwrapped.
+      // Single-object endpoints wrap the payload under a named key.
       { match: '/auth/me', data: { user: candidate } },
-      { match: '/dashboard/candidate', data: emptyDashboard },
+      { match: '/dashboard/candidate', data: { dashboard: emptyDashboard } },
     ]);
     renderApp('/candidate/dashboard', { token: 'valid-token' });
 
     expect(
       await screen.findByRole('heading', { level: 1, name: /dashboard/i }, { timeout: 3000 }),
     ).toBeInTheDocument();
+  });
+
+  it('sends an authenticated HR user into the HR portal', async () => {
+    mockApi([
+      { match: '/auth/me', data: { user: hr } },
+      { match: '/dashboard/hr', data: { dashboard: makeHrDashboard() } },
+    ]);
+    renderApp('/hr/dashboard', { token: 'valid-token' });
+
+    expect(
+      await screen.findByRole('heading', { level: 1, name: /dashboard/i }, { timeout: 3000 }),
+    ).toBeInTheDocument();
+  });
+
+  it('blocks an HR user from candidate routes with an unauthorized page', async () => {
+    mockApi([{ match: '/auth/me', data: { user: hr } }]);
+    renderApp('/candidate/dashboard', { token: 'valid-token' });
+
+    expect(await screen.findByText(/access denied/i)).toBeInTheDocument();
   });
 });

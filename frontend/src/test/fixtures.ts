@@ -1,7 +1,10 @@
 import { APPLICATION_STATUS } from '@/constants/application-status';
+import { EDUCATION_LEVEL } from '@/constants/education';
 import { EMPLOYMENT_TYPE, EXPERIENCE_LEVEL, SALARY_PERIOD, WORK_MODE } from '@/constants/job';
 import { JOB_STATUS } from '@/constants/job-status';
+import type { Applicant } from '@/types/applicant';
 import type { Application } from '@/types/application';
+import type { HrDashboard } from '@/types/hr-dashboard';
 import type { Job } from '@/types/job';
 import type { PaginationMeta } from '@/types/pagination';
 
@@ -74,6 +77,69 @@ export function makeApplication(overrides: Partial<Application> = {}): Applicati
         location: job.company.location,
       },
     },
+    ...overrides,
+  };
+}
+
+/** Builds an Applicant (application + candidate profile) for HR views. */
+export function makeApplicant(overrides: Partial<Applicant> = {}): Applicant {
+  return {
+    id: 'app-1',
+    status: APPLICATION_STATUS.APPLIED,
+    coverLetter: null,
+    resumeUrl: 'https://cv.example.com/ada.pdf',
+    appliedAt: '2026-06-10T00:00:00.000Z',
+    updatedAt: '2026-06-10T00:00:00.000Z',
+    candidate: {
+      id: 'cand-1',
+      firstName: 'Ada',
+      lastName: 'Lovelace',
+      email: 'ada@example.com',
+      headline: 'Senior Frontend Engineer',
+      currentLocation: 'Berlin',
+      preferredLocation: 'Remote',
+      currentCompany: 'NovaTech',
+      currentTitle: 'Frontend Engineer',
+      totalExperienceMonths: 74,
+      highestEducation: EDUCATION_LEVEL.BACHELORS,
+      skills: [{ id: 's1', name: 'React', slug: 'react' }],
+      education: [
+        {
+          id: 'e1',
+          institution: 'TU Berlin',
+          degree: 'BSc',
+          level: EDUCATION_LEVEL.BACHELORS,
+          fieldOfStudy: 'Computer Science',
+          startYear: 2014,
+          endYear: 2018,
+        },
+      ],
+      ...overrides.candidate,
+    },
+    ...overrides,
+  };
+}
+
+/** Builds an HR dashboard payload with zeroed status breakdown by default. */
+export function makeHrDashboard(overrides: Partial<HrDashboard> = {}): HrDashboard {
+  return {
+    totalJobs: 8,
+    activeJobs: 5,
+    closedJobs: 2,
+    totalApplicants: 42,
+    applicantStatusBreakdown: {
+      [APPLICATION_STATUS.APPLIED]: 20,
+      [APPLICATION_STATUS.UNDER_REVIEW]: 8,
+      [APPLICATION_STATUS.SHORTLISTED]: 6,
+      [APPLICATION_STATUS.INTERVIEW]: 4,
+      [APPLICATION_STATUS.OFFERED]: 2,
+      [APPLICATION_STATUS.HIRED]: 1,
+      [APPLICATION_STATUS.REJECTED]: 1,
+      [APPLICATION_STATUS.WITHDRAWN]: 0,
+    },
+    recentApplications: [],
+    recentJobs: [],
+    topPerformingJob: null,
     ...overrides,
   };
 }

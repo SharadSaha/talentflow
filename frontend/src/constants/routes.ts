@@ -33,8 +33,11 @@ export const ROUTES = {
     ROOT: '/hr',
     DASHBOARD: '/hr/dashboard',
     JOBS: '/hr/jobs',
+    JOB_NEW: '/hr/jobs/new',
+    JOB_EDIT: '/hr/jobs/:id/edit',
     APPLICANTS: '/hr/applicants',
     PROFILE: '/hr/profile',
+    SETTINGS: '/hr/settings',
   },
 
   // System
@@ -45,6 +48,16 @@ export const ROUTES = {
 /** Builds the candidate job-details path for a specific job id. */
 export function candidateJobDetailsPath(jobId: string): string {
   return `${ROUTES.CANDIDATE.JOBS}/${jobId}`;
+}
+
+/** Builds the HR edit-job path for a specific job id. */
+export function hrJobEditPath(jobId: string): string {
+  return `${ROUTES.HR.JOBS}/${jobId}/edit`;
+}
+
+/** Builds the HR applicants path, optionally pre-selecting a job. */
+export function hrApplicantsPath(jobId?: string): string {
+  return jobId ? `${ROUTES.HR.APPLICANTS}?job=${jobId}` : ROUTES.HR.APPLICANTS;
 }
 
 /**

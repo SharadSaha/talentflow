@@ -24,7 +24,7 @@ function mockJobAndApplications(job: Job, applications: Application[]) {
             data: applications,
             meta: makeMeta({ total: applications.length }),
           }
-        : { success: true, message: 'ok', data: job };
+        : { success: true, message: 'ok', data: { job } };
       return Promise.resolve(
         new Response(JSON.stringify(body), {
           status: 200,

@@ -32,6 +32,13 @@ const JobDetailsPage = lazy(() => import('@/features/jobs/pages/JobDetailsPage')
 const AppliedJobsPage = lazy(() => import('@/features/applications/pages/AppliedJobsPage'));
 const CandidateProfilePage = lazy(() => import('@/features/profile/pages/CandidateProfilePage'));
 
+const HrDashboardPage = lazy(() => import('@/features/hr/pages/HrDashboardPage'));
+const JobsManagementPage = lazy(() => import('@/features/hr/pages/JobsManagementPage'));
+const CreateJobPage = lazy(() => import('@/features/hr/pages/CreateJobPage'));
+const EditJobPage = lazy(() => import('@/features/hr/pages/EditJobPage'));
+const ApplicantsPage = lazy(() => import('@/features/hr/pages/ApplicantsPage'));
+const HrProfilePage = lazy(() => import('@/features/hr/pages/HrProfilePage'));
+
 /**
  * Application route tree. Structure, not features: the public landing page, auth
  * and role guards, and role-namespaced authenticated areas (`/candidate`,
@@ -141,22 +148,34 @@ export const routes: RouteObject[] = [
                   {
                     path: 'dashboard',
                     handle: { title: 'Dashboard' },
-                    element: <PlaceholderPage title="HR Dashboard" />,
+                    element: <HrDashboardPage />,
+                  },
+                  { path: 'jobs', handle: { title: 'Jobs' }, element: <JobsManagementPage /> },
+                  {
+                    path: 'jobs/new',
+                    handle: { title: 'Create Job' },
+                    element: <CreateJobPage />,
                   },
                   {
-                    path: 'jobs',
-                    handle: { title: 'Jobs' },
-                    element: <PlaceholderPage title="Jobs" />,
+                    path: 'jobs/:id/edit',
+                    handle: { title: 'Edit Job' },
+                    element: <EditJobPage />,
                   },
                   {
                     path: 'applicants',
                     handle: { title: 'Applicants' },
-                    element: <PlaceholderPage title="Applicants" />,
+                    element: <ApplicantsPage />,
                   },
+                  { path: 'profile', handle: { title: 'Profile' }, element: <HrProfilePage /> },
                   {
-                    path: 'profile',
-                    handle: { title: 'Profile' },
-                    element: <PlaceholderPage title="Profile" />,
+                    path: 'settings',
+                    handle: { title: 'Settings' },
+                    element: (
+                      <PlaceholderPage
+                        title="Settings"
+                        description="Workspace settings are coming soon."
+                      />
+                    ),
                   },
                 ],
               },

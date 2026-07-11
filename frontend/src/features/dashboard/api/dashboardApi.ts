@@ -11,8 +11,10 @@ import type { CandidateDashboard } from '@/types/dashboard';
 export const dashboardApi = baseApi.injectEndpoints({
   endpoints: (builder) => ({
     getCandidateDashboard: builder.query<CandidateDashboard, void>({
+      // The endpoint wraps the payload as `data: { dashboard }`.
       query: () => API_ENDPOINTS.DASHBOARD.CANDIDATE,
-      transformResponse: (response: ApiSuccessResponse<CandidateDashboard>) => response.data,
+      transformResponse: (response: ApiSuccessResponse<{ dashboard: CandidateDashboard }>) =>
+        response.data.dashboard,
       providesTags: [{ type: CACHE_TAGS.Dashboard, id: 'CANDIDATE' }],
     }),
   }),

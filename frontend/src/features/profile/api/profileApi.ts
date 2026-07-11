@@ -13,14 +13,17 @@ import type { CandidateProfile } from '@/types/profile';
 export const profileApi = baseApi.injectEndpoints({
   endpoints: (builder) => ({
     getMyProfile: builder.query<CandidateProfile, void>({
+      // The endpoint wraps the payload as `data: { profile }`.
       query: () => API_ENDPOINTS.PROFILE.ROOT,
-      transformResponse: (response: ApiSuccessResponse<CandidateProfile>) => response.data,
+      transformResponse: (response: ApiSuccessResponse<{ profile: CandidateProfile }>) =>
+        response.data.profile,
       providesTags: [CACHE_TAGS.Profile],
     }),
 
     updateProfile: builder.mutation<CandidateProfile, UpdateProfileRequest>({
       query: (body) => ({ url: API_ENDPOINTS.PROFILE.ROOT, method: 'PATCH', body }),
-      transformResponse: (response: ApiSuccessResponse<CandidateProfile>) => response.data,
+      transformResponse: (response: ApiSuccessResponse<{ profile: CandidateProfile }>) =>
+        response.data.profile,
       async onQueryStarted(patch, { dispatch, queryFulfilled }) {
         const optimistic = dispatch(
           profileApi.util.updateQueryData('getMyProfile', undefined, (draft) => {

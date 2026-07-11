@@ -37,7 +37,9 @@ export const applicationsApi = baseApi.injectEndpoints({
 
     applyToJob: builder.mutation<Application, ApplyRequest>({
       query: (body) => ({ url: API_ENDPOINTS.APPLICATIONS.ROOT, method: 'POST', body }),
-      transformResponse: (response: ApiSuccessResponse<Application>) => response.data,
+      // The endpoint wraps the payload as `data: { application }`.
+      transformResponse: (response: ApiSuccessResponse<{ application: Application }>) =>
+        response.data.application,
       invalidatesTags: (_result, _error, arg) => [
         { type: CACHE_TAGS.Application, id: 'LIST' },
         { type: CACHE_TAGS.Dashboard, id: 'CANDIDATE' },
@@ -47,7 +49,9 @@ export const applicationsApi = baseApi.injectEndpoints({
 
     withdrawApplication: builder.mutation<Application, string>({
       query: (id) => ({ url: API_ENDPOINTS.APPLICATIONS.withdraw(id), method: 'PATCH' }),
-      transformResponse: (response: ApiSuccessResponse<Application>) => response.data,
+      // The endpoint wraps the payload as `data: { application }`.
+      transformResponse: (response: ApiSuccessResponse<{ application: Application }>) =>
+        response.data.application,
       invalidatesTags: (result, _error, id) => [
         { type: CACHE_TAGS.Application, id },
         { type: CACHE_TAGS.Application, id: 'LIST' },
