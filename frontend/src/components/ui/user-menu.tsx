@@ -1,5 +1,5 @@
 import { LogOut } from 'lucide-react';
-import type { ComponentType } from 'react';
+import type { ComponentType, ReactNode } from 'react';
 
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
@@ -28,26 +28,41 @@ export interface UserMenuProps {
   avatarUrl?: string;
   onLogout: () => void;
   items?: UserMenuItem[];
+  /** Custom trigger (e.g. a full-width sidebar row). Defaults to an avatar button. */
+  trigger?: ReactNode;
+  /** Alignment of the dropdown content relative to the trigger. */
+  align?: 'start' | 'center' | 'end';
 }
 
 /** Account menu with the signed-in user's identity and a log-out action. */
-export function UserMenu({ name, email, role, avatarUrl, onLogout, items }: UserMenuProps) {
+export function UserMenu({
+  name,
+  email,
+  role,
+  avatarUrl,
+  onLogout,
+  items,
+  trigger,
+  align = 'end',
+}: UserMenuProps) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="rounded-full"
-          aria-label={`Account menu for ${name}`}
-        >
-          <Avatar className="size-8">
-            {avatarUrl ? <AvatarImage src={avatarUrl} alt={name} /> : null}
-            <AvatarFallback>{getInitials(name)}</AvatarFallback>
-          </Avatar>
-        </Button>
+        {trigger ?? (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="rounded-full"
+            aria-label={`Account menu for ${name}`}
+          >
+            <Avatar className="size-8">
+              {avatarUrl ? <AvatarImage src={avatarUrl} alt={name} /> : null}
+              <AvatarFallback>{getInitials(name)}</AvatarFallback>
+            </Avatar>
+          </Button>
+        )}
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-56">
+      <DropdownMenuContent align={align} className="w-56">
         <DropdownMenuLabel className="flex flex-col gap-0.5">
           <span className="truncate text-sm font-medium text-foreground">{name}</span>
           <span className="truncate text-xs font-normal text-foreground-muted">{email}</span>

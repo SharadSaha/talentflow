@@ -1,14 +1,9 @@
 import { AppShell } from '@/layouts/AppShell';
-import { HR_NAV_ITEMS } from '@/layouts/navigation';
-import { ROUTES } from '@/constants/routes';
 
-/** Authenticated shell for HR routes: supplies the HR navigation. */
+/**
+ * Authenticated shell for HR routes. The shell derives its navigation from the
+ * authenticated role, so this is a thin, role-scoped route element.
+ */
 export function HRLayout() {
-  return (
-    <AppShell
-      navItems={HR_NAV_ITEMS}
-      profileRoute={ROUTES.HR.PROFILE}
-      homeRoute={ROUTES.HR.DASHBOARD}
-    />
-  );
+  return <AppShell />;
 }

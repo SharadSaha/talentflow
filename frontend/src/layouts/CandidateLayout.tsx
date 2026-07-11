@@ -1,14 +1,9 @@
 import { AppShell } from '@/layouts/AppShell';
-import { CANDIDATE_NAV_ITEMS } from '@/layouts/navigation';
-import { ROUTES } from '@/constants/routes';
 
-/** Authenticated shell for candidate routes: supplies the candidate navigation. */
+/**
+ * Authenticated shell for candidate routes. The shell derives its navigation
+ * from the authenticated role, so this is a thin, role-scoped route element.
+ */
 export function CandidateLayout() {
-  return (
-    <AppShell
-      navItems={CANDIDATE_NAV_ITEMS}
-      profileRoute={ROUTES.CANDIDATE.PROFILE}
-      homeRoute={ROUTES.CANDIDATE.DASHBOARD}
-    />
-  );
+  return <AppShell />;
 }
