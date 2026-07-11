@@ -29,6 +29,16 @@ export default tseslint.config(
       ],
     },
   },
+  // The design-system library (components/ui) follows the shadcn convention of
+  // co-exporting related components and their CVA variant helpers from one
+  // file. Fast Refresh's "only export components" rule doesn't apply to these
+  // stable primitives, so it is disabled for the library only.
+  {
+    files: ['src/components/ui/**/*.{ts,tsx}'],
+    rules: {
+      'react-refresh/only-export-components': 'off',
+    },
+  },
   // Test files may use vitest/node globals.
   {
     files: ['**/*.{test,spec}.{ts,tsx}', 'src/test/**'],

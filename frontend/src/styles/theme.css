@@ -1,0 +1,157 @@
+/**
+ * Semantic design tokens.
+ *
+ * Every colour in the application derives from these variables — components must
+ * never hardcode colours. Values are stored as raw HSL channels (e.g.
+ * `240 10% 4%`) so Tailwind can apply alpha modifiers (`bg-primary/10`) via
+ * `hsl(var(--token))`.
+ *
+ * `:root` defines the light theme (default). `.dark` overrides for dark mode.
+ * The active theme is toggled by the `ThemeProvider`, which adds/removes the
+ * `dark` class on the document element.
+ */
+
+:root {
+  /* Surfaces */
+  --background: 0 0% 100%;
+  --surface: 240 20% 99%;
+  --surface-elevated: 0 0% 100%;
+  --surface-hover: 240 12% 96%;
+
+  /* Foreground */
+  --foreground: 240 10% 12%;
+  --foreground-secondary: 240 6% 34%;
+  --foreground-muted: 240 4% 52%;
+
+  /* Muted (subtle fills + secondary text on them) */
+  --muted: 240 12% 96%;
+  --muted-foreground: 240 4% 46%;
+
+  /* Accent (hover / active surface for interactive rows and menu items) */
+  --accent: 240 12% 95%;
+  --accent-foreground: 240 10% 16%;
+
+  /* Borders + focus ring */
+  --border: 240 8% 88%;
+  --border-subtle: 240 10% 92%;
+  --input: 240 8% 84%;
+  --ring: 248 90% 66%;
+
+  /* Primary brand */
+  --primary: 248 90% 62%;
+  --primary-hover: 248 90% 56%;
+  --primary-foreground: 0 0% 100%;
+
+  /* Secondary (neutral surface action) */
+  --secondary: 240 12% 95%;
+  --secondary-foreground: 240 10% 20%;
+
+  /* Semantic status */
+  --success: 145 63% 38%;
+  --success-foreground: 0 0% 100%;
+  --warning: 38 92% 46%;
+  --warning-foreground: 40 90% 12%;
+  --danger: 0 72% 50%;
+  --danger-foreground: 0 0% 100%;
+  --info: 215 90% 54%;
+  --info-foreground: 0 0% 100%;
+
+  /* Surfaces for composite components */
+  --card: 0 0% 100%;
+  --card-foreground: 240 10% 12%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 240 10% 12%;
+
+  /* Sidebar / navigation */
+  --sidebar: 240 20% 99%;
+  --sidebar-foreground: 240 6% 34%;
+  --sidebar-border: 240 8% 90%;
+  --sidebar-accent: 240 12% 95%;
+  --sidebar-accent-foreground: 248 90% 58%;
+
+  /* Skeleton loading placeholder */
+  --skeleton: 240 10% 92%;
+
+  /* Data-visualisation palette */
+  --chart-1: 248 90% 62%;
+  --chart-2: 173 58% 39%;
+  --chart-3: 197 82% 48%;
+  --chart-4: 38 92% 50%;
+  --chart-5: 330 72% 56%;
+
+  /* Radius scale */
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+}
+
+.dark {
+  /* Surfaces */
+  --background: 240 10% 4%;
+  --surface: 240 8% 7%;
+  --surface-elevated: 240 8% 10%;
+  --surface-hover: 240 8% 13%;
+
+  /* Foreground */
+  --foreground: 0 0% 96%;
+  --foreground-secondary: 240 5% 72%;
+  --foreground-muted: 240 5% 56%;
+
+  /* Muted */
+  --muted: 240 8% 12%;
+  --muted-foreground: 240 5% 62%;
+
+  /* Accent */
+  --accent: 240 8% 14%;
+  --accent-foreground: 0 0% 96%;
+
+  /* Borders + focus ring */
+  --border: 240 6% 18%;
+  --border-subtle: 240 6% 14%;
+  --input: 240 6% 22%;
+  --ring: 248 90% 72%;
+
+  /* Primary brand */
+  --primary: 248 90% 66%;
+  --primary-hover: 248 90% 62%;
+  --primary-foreground: 0 0% 100%;
+
+  /* Secondary */
+  --secondary: 240 8% 14%;
+  --secondary-foreground: 0 0% 96%;
+
+  /* Semantic status */
+  --success: 145 58% 45%;
+  --success-foreground: 145 80% 8%;
+  --warning: 39 92% 56%;
+  --warning-foreground: 40 90% 10%;
+  --danger: 0 72% 56%;
+  --danger-foreground: 0 0% 100%;
+  --info: 215 95% 64%;
+  --info-foreground: 215 90% 10%;
+
+  /* Surfaces for composite components */
+  --card: 240 8% 7%;
+  --card-foreground: 0 0% 96%;
+  --popover: 240 8% 10%;
+  --popover-foreground: 0 0% 96%;
+
+  /* Sidebar / navigation */
+  --sidebar: 240 8% 6%;
+  --sidebar-foreground: 240 5% 72%;
+  --sidebar-border: 240 6% 16%;
+  --sidebar-accent: 240 8% 13%;
+  --sidebar-accent-foreground: 248 90% 74%;
+
+  /* Skeleton loading placeholder */
+  --skeleton: 240 8% 16%;
+
+  /* Data-visualisation palette */
+  --chart-1: 248 90% 68%;
+  --chart-2: 173 58% 48%;
+  --chart-3: 197 82% 58%;
+  --chart-4: 38 92% 60%;
+  --chart-5: 330 72% 64%;
+}
