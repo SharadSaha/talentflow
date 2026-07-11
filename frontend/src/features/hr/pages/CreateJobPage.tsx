@@ -1,7 +1,7 @@
-import { ArrowLeft } from 'lucide-react';
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 
+import { BackButton } from '@/components/navigation/BackButton';
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import { PageHeader } from '@/components/ui/page-header';
 import { toast } from '@/components/ui/sonner';
@@ -14,19 +14,6 @@ import {
   toCreateJobRequest,
 } from '@/features/hr/schemas/job.schema';
 import { getApiErrorMessage } from '@/utils/api-error';
-
-/** Back link to the HR jobs list, shown above the page title. */
-function BackLink() {
-  return (
-    <Link
-      to={ROUTES.HR.JOBS}
-      className="inline-flex w-fit items-center gap-1.5 rounded-md text-small font-medium text-foreground-secondary outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
-    >
-      <ArrowLeft className="size-4" aria-hidden="true" />
-      Back to jobs
-    </Link>
-  );
-}
 
 /** Create-job page: a blank job form that saves a draft or publishes immediately. */
 export default function CreateJobPage() {
@@ -61,7 +48,7 @@ export default function CreateJobPage() {
       <PageHeader
         title="Create job"
         description="Draft a new role, then save it or publish it for candidates."
-        breadcrumb={<BackLink />}
+        breadcrumb={<BackButton fallback={ROUTES.HR.JOBS} label="Back to jobs" />}
       />
 
       <JobForm

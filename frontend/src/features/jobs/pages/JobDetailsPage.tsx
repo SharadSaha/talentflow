@@ -1,7 +1,8 @@
-import { ArrowLeft, Briefcase, CalendarDays, Clock, MapPin, TrendingUp, Users } from 'lucide-react';
+import { Briefcase, CalendarDays, Clock, MapPin, TrendingUp, Users } from 'lucide-react';
 import type { ComponentType } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 
+import { BackButton } from '@/components/navigation/BackButton';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -35,19 +36,6 @@ function MetaItem({
       <Icon className="size-4 shrink-0 text-foreground-muted" aria-hidden={true} />
       {children}
     </span>
-  );
-}
-
-/** Back navigation link to the browse-jobs page. */
-function BackLink() {
-  return (
-    <Link
-      to={ROUTES.CANDIDATE.JOBS}
-      className="inline-flex w-fit items-center gap-1.5 text-small font-medium text-foreground-secondary outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring rounded-md"
-    >
-      <ArrowLeft className="size-4" aria-hidden={true} />
-      Back to jobs
-    </Link>
   );
 }
 
@@ -276,7 +264,7 @@ function JobDetailsSkeleton() {
 function JobDetailsError({ onRetry }: { onRetry: () => void }) {
   return (
     <div className="space-y-6">
-      <BackLink />
+      <BackButton fallback={ROUTES.CANDIDATE.JOBS} label="Back to jobs" />
       <Card>
         <CardContent className="flex flex-col items-center gap-4 p-10 text-center">
           <div className="flex flex-col gap-1">
@@ -312,7 +300,7 @@ export default function JobDetailsPage() {
 
   return (
     <div className="space-y-6">
-      <BackLink />
+      <BackButton fallback={ROUTES.CANDIDATE.JOBS} label="Back to jobs" />
 
       <JobHeaderCard job={job} />
 

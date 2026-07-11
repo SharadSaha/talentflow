@@ -4,6 +4,7 @@ import { ROUTES } from '@/constants/routes';
 import { USER_ROLE } from '@/constants/roles';
 import { AuthCard } from '@/features/auth/components/AuthCard';
 import { LoginForm } from '@/features/auth/components/LoginForm';
+import { RoleAuthTabs } from '@/features/auth/components/RoleAuthTabs';
 
 /** Candidate sign-in page. */
 export default function CandidateLoginPage() {
@@ -12,6 +13,7 @@ export default function CandidateLoginPage() {
       eyebrow="For candidates"
       title="Welcome back"
       description="Sign in to track applications, save jobs, and manage your profile."
+      tabs={<RoleAuthTabs active="candidate" mode="login" />}
       roleSwitch={{ label: 'Hiring instead? Employer sign in', href: ROUTES.AUTH.HR_LOGIN }}
     >
       <LoginForm

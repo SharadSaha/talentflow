@@ -12,20 +12,21 @@ import { cn } from '@/lib/utils';
 export const buttonVariants = cva(
   cn(
     'inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium',
-    'transition-colors duration-fast ease-emphasized outline-none',
+    'transition-[color,background-color,border-color,box-shadow,transform] duration-fast ease-emphasized outline-none',
     'focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
     'disabled:pointer-events-none disabled:opacity-50',
+    'active:scale-[0.98] motion-reduce:transform-none',
     "[&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 [&_svg]:shrink-0",
   ),
   {
     variants: {
       variant: {
-        primary: 'bg-primary text-primary-foreground hover:bg-primary-hover',
+        primary: 'bg-primary text-primary-foreground shadow-sm hover:bg-primary-hover hover:shadow',
         secondary: 'bg-secondary text-secondary-foreground hover:bg-surface-hover',
         outline:
-          'border border-input bg-transparent text-foreground hover:bg-accent hover:text-accent-foreground',
+          'border border-input bg-transparent text-foreground hover:border-border hover:bg-accent hover:text-accent-foreground',
         ghost: 'bg-transparent text-foreground hover:bg-accent hover:text-accent-foreground',
-        destructive: 'bg-danger text-danger-foreground hover:bg-danger/90',
+        destructive: 'bg-danger text-danger-foreground shadow-sm hover:bg-danger/90 hover:shadow',
         link: 'text-primary underline-offset-4 hover:underline',
       },
       size: {

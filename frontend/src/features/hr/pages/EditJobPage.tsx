@@ -1,8 +1,9 @@
 import { skipToken } from '@reduxjs/toolkit/query';
-import { AlertTriangle, ArrowLeft } from 'lucide-react';
+import { AlertTriangle } from 'lucide-react';
 import { useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 
+import { BackButton } from '@/components/navigation/BackButton';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
@@ -20,19 +21,6 @@ import {
 } from '@/features/hr/schemas/job.schema';
 import { useGetJobQuery } from '@/features/jobs/api/jobsApi';
 import { getApiErrorMessage } from '@/utils/api-error';
-
-/** Back link to the HR jobs list, shown above the page title. */
-function BackLink() {
-  return (
-    <Link
-      to={ROUTES.HR.JOBS}
-      className="inline-flex w-fit items-center gap-1.5 rounded-md text-small font-medium text-foreground-secondary outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
-    >
-      <ArrowLeft className="size-4" aria-hidden="true" />
-      Back to jobs
-    </Link>
-  );
-}
 
 /** Skeleton that mirrors the job form's section-card layout while loading. */
 function JobFormSkeleton() {
@@ -94,7 +82,7 @@ export default function EditJobPage() {
       <PageHeader
         title="Edit job"
         description="Update the role's details, then save your changes."
-        breadcrumb={<BackLink />}
+        breadcrumb={<BackButton fallback={ROUTES.HR.JOBS} label="Back to jobs" />}
       />
 
       {isLoading ? (

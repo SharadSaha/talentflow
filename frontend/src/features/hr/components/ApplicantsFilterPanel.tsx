@@ -1,6 +1,7 @@
 import { EDUCATION_LEVEL_OPTIONS } from '@/constants/education';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { MultiSelect } from '@/components/ui/multi-select';
 import {
   Select,
   SelectContent,
@@ -8,6 +9,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { SKILL_OPTIONS } from '@/constants/skills';
 import type {
   ApplicantFilterKey,
   ApplicantFilterValues,
@@ -74,12 +76,12 @@ export function ApplicantsFilterPanel({ filters, onFilterChange }: ApplicantsFil
       </div>
 
       <div className="flex flex-col gap-2">
-        <Label htmlFor="filter-skills">Skills</Label>
-        <Input
-          id="filter-skills"
-          value={filters.skills}
-          onChange={(event) => onFilterChange('skills', event.target.value)}
-          placeholder="Comma-separated, e.g. react, typescript"
+        <Label>Skills</Label>
+        <MultiSelect
+          options={SKILL_OPTIONS}
+          value={filters.skills ? filters.skills.split(',').filter(Boolean) : []}
+          onValueChange={(next) => onFilterChange('skills', next.join(','))}
+          placeholder="Any skills"
         />
       </div>
 

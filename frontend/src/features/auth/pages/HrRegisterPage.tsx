@@ -4,6 +4,7 @@ import { Building2, ShieldCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ROUTES } from '@/constants/routes';
 import { AuthCard } from '@/features/auth/components/AuthCard';
+import { RoleAuthTabs } from '@/features/auth/components/RoleAuthTabs';
 
 /**
  * Employer registration page. The backend provisions HR accounts via an admin
@@ -17,6 +18,7 @@ export default function HrRegisterPage() {
       eyebrow="For employers"
       title="Request employer access"
       description="Employer accounts are provisioned by a TalentFlow administrator to keep hiring workspaces secure."
+      tabs={<RoleAuthTabs active="hr" mode="register" />}
       roleSwitch={{
         label: 'Looking for a job? Candidate sign up',
         href: ROUTES.AUTH.CANDIDATE_REGISTER,

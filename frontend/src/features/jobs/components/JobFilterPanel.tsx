@@ -3,6 +3,8 @@ import { useId } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { MultiSelect } from '@/components/ui/multi-select';
+import { SKILL_OPTIONS } from '@/constants/skills';
 import {
   Select,
   SelectContent,
@@ -173,13 +175,12 @@ export function JobFilterPanel({
       </FilterField>
 
       <FilterField id={fieldId('skills')} label="Skills">
-        <Input
-          id={fieldId('skills')}
-          value={filters.skills}
-          onChange={(event) => onFilterChange('skills', event.target.value)}
-          placeholder="e.g. React, TypeScript"
+        <MultiSelect
+          options={SKILL_OPTIONS}
+          value={filters.skills ? filters.skills.split(',').filter(Boolean) : []}
+          onValueChange={(next) => onFilterChange('skills', next.join(','))}
+          placeholder="Any skills"
         />
-        <p className="text-caption text-foreground-muted">Separate multiple skills with commas.</p>
       </FilterField>
     </div>
   );

@@ -1,11 +1,11 @@
-import { Bell, Search } from 'lucide-react';
+import { Bell } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 import { Breadcrumbs } from '@/components/navigation/Breadcrumbs';
+import { GlobalSearch } from '@/components/navigation/GlobalSearch';
 import { Logo } from '@/components/branding/Logo';
 import { MobileSidebar } from '@/components/sidebar/MobileSidebar';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Navbar, NavbarActions } from '@/components/ui/navbar';
 import { useNavigationConfig } from '@/hooks/useNavigationConfig';
 
@@ -30,14 +30,7 @@ export function AppTopbar() {
       </div>
 
       <div className="ml-auto hidden max-w-xs flex-1 lg:block">
-        <Input
-          type="search"
-          placeholder="Search…"
-          aria-label="Search"
-          disabled
-          startIcon={<Search />}
-          title="Search is coming soon"
-        />
+        <GlobalSearch />
       </div>
 
       <NavbarActions className="ml-auto lg:ml-0">

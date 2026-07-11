@@ -10,6 +10,8 @@ interface AuthCardProps {
   title: string;
   description: string;
   children: ReactNode;
+  /** Optional control rendered above the card (e.g. a role switcher). */
+  tabs?: ReactNode;
   /** Optional cross-link to the other role's entry point. */
   roleSwitch?: { label: string; href: string };
 }
@@ -19,9 +21,17 @@ interface AuthCardProps {
  * optional link to the other role's flow. Keeps the four auth screens visually
  * consistent while their content stays role-specific.
  */
-export function AuthCard({ eyebrow, title, description, children, roleSwitch }: AuthCardProps) {
+export function AuthCard({
+  eyebrow,
+  title,
+  description,
+  children,
+  tabs,
+  roleSwitch,
+}: AuthCardProps) {
   return (
     <div className="w-full space-y-4">
+      {tabs}
       <Card>
         <CardHeader>
           <p className="text-caption font-medium uppercase tracking-wider text-primary">

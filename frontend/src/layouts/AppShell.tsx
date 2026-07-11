@@ -22,8 +22,17 @@ export function AppShell() {
         <div className="flex min-w-0 flex-1 flex-col">
           <AppTopbar />
 
-          <main className="flex-1 overflow-y-auto">
-            <div className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+          <main className="relative flex-1 overflow-y-auto">
+            {/* Subtle depth: a faint grid that fades out, plus a soft primary glow. */}
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-0 overflow-hidden"
+            >
+              <div className="absolute inset-0 bg-grid opacity-[0.4] [mask-image:radial-gradient(ellipse_90%_55%_at_50%_0%,black,transparent_70%)]" />
+              <div className="absolute -top-32 left-1/2 h-[360px] w-[820px] -translate-x-1/2 rounded-full bg-primary/[0.05] blur-[120px]" />
+            </div>
+
+            <div className="relative mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
               <Suspense fallback={<FullPageLoader />}>
                 <Outlet />
               </Suspense>

@@ -1,20 +1,37 @@
 /**
  * Database seed script.
  *
- * Generates realistic demo data so that every screen of the application has
- * meaningful content:
- *   * Companies, skills (shared reference data)
- *   * One HR user per company (primary: admin@test.com)
- *   * A pool of candidates with varied, filterable attributes
- *   * Jobs across companies (varied type / level / salary / skills)
- *   * Applications with varied statuses and audit trails
+ * Generates a large, realistic development dataset so every screen of the
+ * application has meaningful content and the filters/pagination have enough
+ * volume to exercise:
+ *   * 24 companies + 105 skills (shared reference data)
+ *   * 48 HR users (one+ per company) and 112 candidate users (160 users total)
+ *   * 112 candidate profiles with skills, education and filterable attributes
+ *   * 320 jobs distributed across companies and their HR owners
+ *   * 900+ applications spread realistically across jobs / candidates / time,
+ *     each with an append-only status-event audit trail
  *
- * The script is idempotent: it clears the relevant tables (in FK-safe order)
- * before inserting, so it can be run repeatedly.
+ * Design notes:
+ *   * All randomness flows through a single seeded PRNG (`rng`) so repeated runs
+ *     produce the SAME dataset — reproducible demos and stable screenshots. The
+ *     previous seed used only static literals; this keeps that determinism while
+ *     scaling up volume. (`Math.random` is intentionally avoided.)
+ *   * Rows are inserted with `createMany` in batches for performance. Because
+ *     Prisma's `createMany` cannot return generated ids, primary keys are minted
+ *     up-front with `crypto.randomUUID()` so foreign keys can be pre-wired.
+ *   * The script is idempotent: it clears the relevant tables (in FK-safe order)
+ *     before inserting, so it can be run repeatedly.
+ *
+ * The well-known demo accounts documented for the project are preserved exactly:
+ *   * HR        — admin@test.com     / Admin@1234
+ *   * Candidate — candidate@test.com / Candidate@1234
+ * plus the named secondary HR/candidate accounts (…@test.com / Password@123).
  *
  * Run with: `npm run prisma:seed`  (or `npx prisma db seed`)
  */
 import 'dotenv/config';
+
+import { randomUUID } from 'node:crypto';
 
 import { PrismaPg } from '@prisma/adapter-pg';
 import bcrypt from 'bcrypt';
@@ -32,6 +49,7 @@ import {
   SalaryPeriod,
   UserRole,
 } from '../src/generated/prisma/client.js';
+import type { Prisma } from '../src/generated/prisma/client.js';
 
 const connectionString = process.env['DATABASE_URL'];
 if (!connectionString) {
@@ -41,89 +59,487 @@ if (!connectionString) {
 const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
 
 const BCRYPT_SALT_ROUNDS = 12;
+const INSERT_BATCH_SIZE = 500;
 
+// Well-known demo accounts (kept stable so documented logins keep working).
 const PRIMARY_HR_EMAIL = 'admin@test.com';
 const PRIMARY_HR_PASSWORD = 'Admin@1234';
 const PRIMARY_CANDIDATE_EMAIL = 'candidate@test.com';
 const PRIMARY_CANDIDATE_PASSWORD = 'Candidate@1234';
 const DEMO_USER_PASSWORD = 'Password@123';
 
+// Target volumes (kept above every requested minimum).
+const TARGET_HR_USERS = 48;
+const TARGET_CANDIDATES = 112;
+const TARGET_JOBS = 320;
+
 // ---------------------------------------------------------------------------
-// Seed data definitions (strongly typed literals)
+// Seeded pseudo-random number generator + small sampling helpers
 // ---------------------------------------------------------------------------
 
-interface CompanySeed {
-  name: string;
-  slug: string;
-  website: string;
-  logoUrl: string;
-  about: string;
-  industry: string;
-  size: CompanySize;
-  location: string;
+/**
+ * mulberry32 — a tiny, fast, deterministic PRNG. Given the same seed it always
+ * yields the same sequence, which keeps the generated dataset reproducible.
+ */
+function createRng(seed: number): () => number {
+  let state = seed >>> 0;
+  return (): number => {
+    state = (state + 0x6d2b79f5) | 0;
+    let t = Math.imul(state ^ (state >>> 15), 1 | state);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
 }
 
-interface SkillSeed {
-  name: string;
-  slug: string;
+const rng = createRng(0x7a1e5f10);
+
+/** Random integer in the inclusive range [min, max]. */
+function randInt(min: number, max: number): number {
+  return min + Math.floor(rng() * (max - min + 1));
 }
 
-interface EducationSeed {
-  institution: string;
-  degree: string;
-  level: EducationLevel;
-  fieldOfStudy: string;
-  startYear: number;
-  endYear: number;
+/** Returns true with probability `p` (0..1). */
+function chance(p: number): boolean {
+  return rng() < p;
 }
 
-interface CandidateSeed {
-  email: string;
-  password: string;
-  firstName: string;
-  lastName: string;
-  headline: string;
-  about: string;
-  phone: string;
-  currentLocation: string;
-  preferredLocation: string;
-  currentCompany: string;
-  currentTitle: string;
-  totalExperienceMonths: number;
-  highestEducation: EducationLevel;
-  expectedSalaryMin: number;
-  expectedSalaryMax: number;
-  noticePeriodDays: number;
-  skillSlugs: readonly string[];
-  education: readonly EducationSeed[];
+/** Picks one element from a non-empty array. */
+function pick<T>(items: readonly T[]): T {
+  const value = items[Math.floor(rng() * items.length)];
+  if (value === undefined) {
+    throw new Error('pick() called on an empty array.');
+  }
+  return value;
 }
 
-interface JobSeed {
-  companySlug: string;
-  title: string;
-  description: string;
-  employmentType: EmploymentType;
-  experienceLevel: ExperienceLevel;
-  locationType: LocationType;
-  location: string;
-  minExperienceYears: number;
-  maxExperienceYears: number;
-  salaryMin: number;
-  salaryMax: number;
-  openings: number;
-  status: JobStatus;
-  requiredSkillSlugs: readonly string[];
-  optionalSkillSlugs: readonly string[];
+/** Returns a shuffled shallow copy (Fisher–Yates with the seeded RNG). */
+function shuffled<T>(items: readonly T[]): T[] {
+  const copy = [...items];
+  for (let i = copy.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(rng() * (i + 1));
+    const a = copy[i];
+    const b = copy[j];
+    if (a !== undefined && b !== undefined) {
+      copy[i] = b;
+      copy[j] = a;
+    }
+  }
+  return copy;
 }
 
-const COMPANIES: readonly CompanySeed[] = [
+/** Picks `count` distinct elements (clamped to the array length). */
+function pickDistinct<T>(items: readonly T[], count: number): T[] {
+  return shuffled(items).slice(0, Math.min(count, items.length));
+}
+
+/** Weighted pick from `[value, weight]` pairs. */
+function weightedPick<T>(entries: ReadonlyArray<readonly [T, number]>): T {
+  const total = entries.reduce((sum, [, weight]) => sum + weight, 0);
+  let threshold = rng() * total;
+  for (const [value, weight] of entries) {
+    threshold -= weight;
+    if (threshold <= 0) {
+      return value;
+    }
+  }
+  const last = entries[entries.length - 1];
+  if (!last) {
+    throw new Error('weightedPick() called with no entries.');
+  }
+  return last[0];
+}
+
+/** A date `daysAgo` days before now (with an optional intra-day offset). */
+function daysAgo(days: number): Date {
+  const millis = Date.now() - days * 24 * 60 * 60 * 1000 - randInt(0, 23) * 60 * 60 * 1000;
+  return new Date(millis);
+}
+
+/** Inserts rows in fixed-size batches to avoid oversized single statements. */
+async function insertInBatches<T>(
+  rows: readonly T[],
+  insert: (batch: T[]) => Promise<unknown>,
+): Promise<void> {
+  for (let i = 0; i < rows.length; i += INSERT_BATCH_SIZE) {
+    await insert(rows.slice(i, i + INSERT_BATCH_SIZE));
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Vocabulary pools (composed to avoid obvious repetition)
+// ---------------------------------------------------------------------------
+
+const FIRST_NAMES: readonly string[] = [
+  'Priya',
+  'Rahul',
+  'Ananya',
+  'Mohammed',
+  'Sneha',
+  'Arjun',
+  'Kavya',
+  'Ishita',
+  'Rohan',
+  'Aditya',
+  'Neha',
+  'Vikram',
+  'Divya',
+  'Karan',
+  'Pooja',
+  'Siddharth',
+  'Meera',
+  'Aryan',
+  'Riya',
+  'Nikhil',
+  'Sanya',
+  'Harsh',
+  'Tanvi',
+  'Aman',
+  'Shreya',
+  'Varun',
+  'Aisha',
+  'Manish',
+  'Deepika',
+  'Rajesh',
+  'Anjali',
+  'Suresh',
+  'Nisha',
+  'Gaurav',
+  'Swati',
+  'Abhishek',
+  'Ritika',
+  'Sameer',
+  'Preeti',
+  'Yash',
+  'Farah',
+  'Imran',
+  'Zoya',
+  'Kabir',
+  'Lakshmi',
+  'Naveen',
+  'Ojas',
+  'Trisha',
+  'Uday',
+  'Vaishnavi',
+];
+
+const LAST_NAMES: readonly string[] = [
+  'Sharma',
+  'Verma',
+  'Iyer',
+  'Khan',
+  'Reddy',
+  'Nair',
+  'Menon',
+  'Gupta',
+  'Patel',
+  'Desai',
+  'Deshmukh',
+  'Pillai',
+  'Rao',
+  'Singh',
+  'Chopra',
+  'Kapoor',
+  'Mehta',
+  'Joshi',
+  'Banerjee',
+  'Chatterjee',
+  'Mukherjee',
+  'Bose',
+  'Das',
+  'Ghosh',
+  'Kulkarni',
+  'Bhat',
+  'Shetty',
+  'Naidu',
+  'Pandey',
+  'Mishra',
+  'Agarwal',
+  'Jain',
+  'Malhotra',
+  'Sinha',
+  'Roy',
+  'Bhatt',
+  'Chauhan',
+  'Saxena',
+  'Trivedi',
+  'Prasad',
+];
+
+const LOCATIONS: readonly string[] = [
+  'Bengaluru, India',
+  'Mumbai, India',
+  'Pune, India',
+  'Hyderabad, India',
+  'Chennai, India',
+  'Gurgaon, India',
+  'Noida, India',
+  'Delhi, India',
+  'Kolkata, India',
+  'Ahmedabad, India',
+  'Jaipur, India',
+  'Kochi, India',
+  'Coimbatore, India',
+  'Indore, India',
+  'Chandigarh, India',
+  'Remote (India)',
+];
+
+const COLLEGES: readonly string[] = [
+  'Indian Institute of Technology, Bombay',
+  'Indian Institute of Technology, Delhi',
+  'Indian Institute of Technology, Madras',
+  'Indian Institute of Technology, Kanpur',
+  'National Institute of Technology, Trichy',
+  'National Institute of Technology, Surathkal',
+  'Birla Institute of Technology and Science, Pilani',
+  'Delhi Technological University',
+  'College of Engineering, Pune',
+  'PES University',
+  'RV College of Engineering',
+  'Vellore Institute of Technology',
+  'Manipal Institute of Technology',
+  'Anna University',
+  'Veermata Jijabai Technological Institute',
+  'Jadavpur University',
+  'Amrita School of Engineering',
+  'SRM Institute of Science and Technology',
+  'Thapar Institute of Engineering and Technology',
+  'International Institute of Information Technology, Hyderabad',
+  'BMS College of Engineering',
+  'Netaji Subhas University of Technology',
+  'Indian Institute of Science, Bengaluru',
+  'Symbiosis Institute of Technology',
+  'Christ University',
+];
+
+const FIELDS_OF_STUDY: readonly string[] = [
+  'Computer Science',
+  'Information Technology',
+  'Software Engineering',
+  'Electronics & Communication',
+  'Electrical Engineering',
+  'Data Science',
+  'Artificial Intelligence',
+  'Computer Engineering',
+  'Mathematics & Computing',
+  'Information Systems',
+];
+
+// Fragments composed into non-repetitive candidate "about" text.
+const ABOUT_OPENERS: readonly string[] = [
+  'Engineer who enjoys turning ambiguous problems into shipped product.',
+  'Pragmatic builder focused on clean, well-tested code.',
+  'Product-minded developer who cares about the end-user experience.',
+  'Curious problem-solver who thrives in fast-moving teams.',
+  'Backend-leaning generalist who likes owning features end to end.',
+  'Detail-oriented engineer with a bias for reliability and observability.',
+  'Full-stack developer comfortable across the entire delivery pipeline.',
+];
+const ABOUT_MIDDLES: readonly string[] = [
+  'I have shipped features used by large, growing user bases.',
+  'I care deeply about performance, accessibility and maintainability.',
+  'I enjoy mentoring peers and improving team engineering practices.',
+  'I like collaborating closely with design and product partners.',
+  'I have led migrations and incremental rewrites without downtime.',
+  'I gravitate towards well-instrumented, testable systems.',
+];
+const ABOUT_CLOSERS: readonly string[] = [
+  'Looking for a role with real ownership and growth.',
+  'Excited to work on problems at meaningful scale.',
+  'Open to teams that value craft and continuous learning.',
+  'Keen to join a mission-driven, high-trust team.',
+  'Seeking a collaborative environment with strong engineering culture.',
+];
+
+// Fragments composed into non-repetitive job descriptions.
+const JOB_INTROS: readonly string[] = [
+  'We are looking for a driven engineer to join our team and help build the next generation of our product.',
+  'Join a small, focused team shipping high-impact features to a fast-growing user base.',
+  'This role sits at the heart of our product and offers a high degree of ownership and autonomy.',
+  'We need a hands-on builder who can move fast without compromising on quality.',
+  'You will work alongside senior engineers on systems that operate at real scale.',
+];
+const JOB_RESPONSIBILITIES: readonly string[] = [
+  'Design, build and ship features across the stack in close collaboration with product and design.',
+  'Own services end to end — from data modelling and API design through deployment and monitoring.',
+  'Write clean, well-tested code and participate actively in code reviews.',
+  'Improve reliability, performance and developer experience across our platform.',
+  'Partner with cross-functional teams to translate requirements into robust technical solutions.',
+];
+const JOB_CLOSINGS: readonly string[] = [
+  'You will have a direct impact on the product roadmap and the people who use it every day.',
+  'We offer a supportive culture, competitive compensation and room to grow into leadership.',
+  'If you enjoy autonomy, ownership and continuous learning, we would love to hear from you.',
+  'This is a great opportunity to grow your craft in a high-trust engineering environment.',
+];
+
+interface RoleTemplate {
+  readonly base: string;
+  readonly skillSlugs: readonly string[];
+}
+
+// Role archetypes; a seniority label is composed onto the base at generation time.
+const ROLE_TEMPLATES: readonly RoleTemplate[] = [
+  {
+    base: 'Frontend Engineer',
+    skillSlugs: [
+      'react',
+      'typescript',
+      'javascript',
+      'nextjs',
+      'tailwind-css',
+      'redux',
+      'html5',
+      'css3',
+    ],
+  },
+  {
+    base: 'Backend Engineer',
+    skillSlugs: [
+      'nodejs',
+      'express',
+      'postgresql',
+      'redis',
+      'nestjs',
+      'graphql',
+      'rest-api',
+      'microservices',
+    ],
+  },
+  {
+    base: 'Full-Stack Engineer',
+    skillSlugs: ['react', 'typescript', 'nodejs', 'postgresql', 'nextjs', 'prisma', 'graphql'],
+  },
+  {
+    base: 'Platform Engineer',
+    skillSlugs: ['docker', 'kubernetes', 'aws', 'terraform', 'go', 'ci-cd', 'linux'],
+  },
+  {
+    base: 'DevOps Engineer',
+    skillSlugs: ['docker', 'kubernetes', 'aws', 'terraform', 'ci-cd', 'ansible', 'prometheus'],
+  },
+  {
+    base: 'Site Reliability Engineer',
+    skillSlugs: ['kubernetes', 'aws', 'prometheus', 'grafana', 'go', 'linux', 'system-design'],
+  },
+  {
+    base: 'Data Engineer',
+    skillSlugs: ['python', 'spark', 'airflow', 'postgresql', 'aws', 'kafka', 'sql'],
+  },
+  {
+    base: 'Data Scientist',
+    skillSlugs: [
+      'python',
+      'pandas',
+      'scikit-learn',
+      'tensorflow',
+      'sql',
+      'statistics',
+      'machine-learning',
+    ],
+  },
+  {
+    base: 'Machine Learning Engineer',
+    skillSlugs: ['python', 'pytorch', 'tensorflow', 'mlops', 'machine-learning', 'aws', 'docker'],
+  },
+  {
+    base: 'Android Engineer',
+    skillSlugs: ['kotlin', 'android', 'java', 'rest-api', 'jetpack-compose'],
+  },
+  { base: 'iOS Engineer', skillSlugs: ['swift', 'ios', 'swiftui', 'rest-api'] },
+  { base: 'Mobile Engineer', skillSlugs: ['react-native', 'typescript', 'javascript', 'rest-api'] },
+  {
+    base: 'QA Engineer',
+    skillSlugs: ['selenium', 'cypress', 'playwright', 'jest', 'test-automation'],
+  },
+  { base: 'Security Engineer', skillSlugs: ['security', 'linux', 'python', 'aws', 'cryptography'] },
+  {
+    base: 'Product Manager',
+    skillSlugs: ['product-strategy', 'roadmapping', 'agile', 'analytics', 'user-research'],
+  },
+  {
+    base: 'Product Designer',
+    skillSlugs: ['figma', 'ui-design', 'ux-research', 'prototyping', 'design-systems'],
+  },
+  {
+    base: 'UX Researcher',
+    skillSlugs: ['ux-research', 'user-research', 'usability-testing', 'analytics'],
+  },
+  {
+    base: 'Engineering Manager',
+    skillSlugs: ['system-design', 'agile', 'leadership', 'architecture'],
+  },
+  {
+    base: 'Solutions Architect',
+    skillSlugs: ['aws', 'system-design', 'microservices', 'architecture', 'kubernetes'],
+  },
+  {
+    base: 'Java Engineer',
+    skillSlugs: ['java', 'spring-boot', 'postgresql', 'redis', 'kafka', 'microservices'],
+  },
+  {
+    base: 'Python Engineer',
+    skillSlugs: ['python', 'django', 'fastapi', 'postgresql', 'celery', 'rest-api'],
+  },
+  { base: 'Go Engineer', skillSlugs: ['go', 'grpc', 'postgresql', 'kubernetes', 'microservices'] },
+  { base: '.NET Engineer', skillSlugs: ['csharp', 'dotnet', 'azure', 'sql-server'] },
+  { base: 'Cloud Engineer', skillSlugs: ['aws', 'gcp', 'terraform', 'kubernetes', 'ci-cd'] },
+  {
+    base: 'Analytics Engineer',
+    skillSlugs: ['sql', 'dbt', 'python', 'snowflake', 'data-modeling'],
+  },
+];
+
+const SENIORITY_BY_LEVEL: Record<ExperienceLevel, readonly string[]> = {
+  [ExperienceLevel.INTERNSHIP]: ['Intern'],
+  [ExperienceLevel.ENTRY_LEVEL]: ['Junior', 'Associate', ''],
+  [ExperienceLevel.MID_LEVEL]: ['', ''],
+  [ExperienceLevel.SENIOR]: ['Senior', 'Senior'],
+  [ExperienceLevel.LEAD]: ['Lead', 'Staff', 'Principal'],
+  [ExperienceLevel.EXECUTIVE]: ['Head of', 'Director of', 'VP of'],
+};
+
+interface SalaryBand {
+  readonly min: number;
+  readonly max: number;
+  readonly minExp: number;
+  readonly maxExp: number;
+}
+// Yearly INR bands, keyed by seniority.
+const SALARY_BY_LEVEL: Record<ExperienceLevel, SalaryBand> = {
+  [ExperienceLevel.INTERNSHIP]: { min: 300000, max: 720000, minExp: 0, maxExp: 1 },
+  [ExperienceLevel.ENTRY_LEVEL]: { min: 600000, max: 1200000, minExp: 0, maxExp: 2 },
+  [ExperienceLevel.MID_LEVEL]: { min: 1200000, max: 2500000, minExp: 2, maxExp: 6 },
+  [ExperienceLevel.SENIOR]: { min: 2500000, max: 4500000, minExp: 5, maxExp: 10 },
+  [ExperienceLevel.LEAD]: { min: 4000000, max: 6500000, minExp: 8, maxExp: 14 },
+  [ExperienceLevel.EXECUTIVE]: { min: 6000000, max: 12000000, minExp: 10, maxExp: 20 },
+};
+
+const DEGREE_BY_LEVEL: Record<EducationLevel, string> = {
+  [EducationLevel.HIGH_SCHOOL]: 'Higher Secondary',
+  [EducationLevel.DIPLOMA]: 'Diploma',
+  [EducationLevel.BACHELORS]: 'B.Tech',
+  [EducationLevel.MASTERS]: 'M.Tech',
+  [EducationLevel.DOCTORATE]: 'Ph.D.',
+  [EducationLevel.OTHER]: 'Certificate',
+};
+
+// ---------------------------------------------------------------------------
+// Reference data: companies + skills
+// ---------------------------------------------------------------------------
+
+interface CompanyDef {
+  readonly name: string;
+  readonly slug: string;
+  readonly industry: string;
+  readonly size: CompanySize;
+  readonly location: string;
+}
+
+const COMPANY_DEFS: readonly CompanyDef[] = [
   {
     name: 'Acme Cloud',
     slug: 'acme-cloud',
-    website: 'https://acmecloud.example.com',
-    logoUrl: 'https://api.dicebear.com/7.x/initials/svg?seed=Acme%20Cloud',
-    about:
-      'Acme Cloud builds developer-first infrastructure and platform tooling used by thousands of engineering teams worldwide.',
     industry: 'Cloud Infrastructure',
     size: CompanySize.LARGE,
     location: 'Bengaluru, India',
@@ -131,10 +547,6 @@ const COMPANIES: readonly CompanySeed[] = [
   {
     name: 'Fintrek',
     slug: 'fintrek',
-    website: 'https://fintrek.example.com',
-    logoUrl: 'https://api.dicebear.com/7.x/initials/svg?seed=Fintrek',
-    about:
-      'Fintrek is a fast-growing fintech building payments and lending products for emerging markets.',
     industry: 'Financial Services',
     size: CompanySize.MEDIUM,
     location: 'Mumbai, India',
@@ -142,10 +554,6 @@ const COMPANIES: readonly CompanySeed[] = [
   {
     name: 'HealthSync',
     slug: 'healthsync',
-    website: 'https://healthsync.example.com',
-    logoUrl: 'https://api.dicebear.com/7.x/initials/svg?seed=HealthSync',
-    about:
-      'HealthSync develops interoperable healthcare software that connects providers, labs, and patients.',
     industry: 'Healthcare Technology',
     size: CompanySize.MEDIUM,
     location: 'Pune, India',
@@ -153,17 +561,159 @@ const COMPANIES: readonly CompanySeed[] = [
   {
     name: 'DataForge',
     slug: 'dataforge',
-    website: 'https://dataforge.example.com',
-    logoUrl: 'https://api.dicebear.com/7.x/initials/svg?seed=DataForge',
-    about:
-      'DataForge is an early-stage startup building an AI-native analytics platform for product teams.',
+    industry: 'Data & Analytics',
+    size: CompanySize.STARTUP,
+    location: 'Remote (India)',
+  },
+  {
+    name: 'Nimbus Retail',
+    slug: 'nimbus-retail',
+    industry: 'E-commerce',
+    size: CompanySize.LARGE,
+    location: 'Bengaluru, India',
+  },
+  {
+    name: 'Voltride Mobility',
+    slug: 'voltride-mobility',
+    industry: 'Mobility & Transport',
+    size: CompanySize.MEDIUM,
+    location: 'Gurgaon, India',
+  },
+  {
+    name: 'Lumen Media',
+    slug: 'lumen-media',
+    industry: 'Media & Entertainment',
+    size: CompanySize.MEDIUM,
+    location: 'Mumbai, India',
+  },
+  {
+    name: 'AgriNova',
+    slug: 'agrinova',
+    industry: 'AgriTech',
+    size: CompanySize.SMALL,
+    location: 'Hyderabad, India',
+  },
+  {
+    name: 'EduSpark',
+    slug: 'eduspark',
+    industry: 'EdTech',
+    size: CompanySize.MEDIUM,
+    location: 'Bengaluru, India',
+  },
+  {
+    name: 'SecurePay',
+    slug: 'securepay',
+    industry: 'Payments',
+    size: CompanySize.LARGE,
+    location: 'Chennai, India',
+  },
+  {
+    name: 'CloudKart',
+    slug: 'cloudkart',
+    industry: 'E-commerce',
+    size: CompanySize.ENTERPRISE,
+    location: 'Bengaluru, India',
+  },
+  {
+    name: 'Meridian Labs',
+    slug: 'meridian-labs',
+    industry: 'Artificial Intelligence',
+    size: CompanySize.STARTUP,
+    location: 'Remote (India)',
+  },
+  {
+    name: 'Skyline Games',
+    slug: 'skyline-games',
+    industry: 'Gaming',
+    size: CompanySize.SMALL,
+    location: 'Pune, India',
+  },
+  {
+    name: 'GreenGrid Energy',
+    slug: 'greengrid-energy',
+    industry: 'CleanTech',
+    size: CompanySize.MEDIUM,
+    location: 'Ahmedabad, India',
+  },
+  {
+    name: 'Trailhead Logistics',
+    slug: 'trailhead-logistics',
+    industry: 'Logistics',
+    size: CompanySize.LARGE,
+    location: 'Noida, India',
+  },
+  {
+    name: 'Beacon Health',
+    slug: 'beacon-health',
+    industry: 'Healthcare Technology',
+    size: CompanySize.SMALL,
+    location: 'Kochi, India',
+  },
+  {
+    name: 'Quantex Systems',
+    slug: 'quantex-systems',
+    industry: 'Enterprise Software',
+    size: CompanySize.ENTERPRISE,
+    location: 'Hyderabad, India',
+  },
+  {
+    name: 'Pixelbloom Studio',
+    slug: 'pixelbloom-studio',
+    industry: 'Design & Creative',
+    size: CompanySize.STARTUP,
+    location: 'Bengaluru, India',
+  },
+  {
+    name: 'Orbit Telecom',
+    slug: 'orbit-telecom',
+    industry: 'Telecommunications',
+    size: CompanySize.LARGE,
+    location: 'Delhi, India',
+  },
+  {
+    name: 'BrightHire HR',
+    slug: 'brighthire-hr',
+    industry: 'HR Technology',
+    size: CompanySize.MEDIUM,
+    location: 'Gurgaon, India',
+  },
+  {
+    name: 'Cobalt Security',
+    slug: 'cobalt-security',
+    industry: 'Cybersecurity',
+    size: CompanySize.MEDIUM,
+    location: 'Bengaluru, India',
+  },
+  {
+    name: 'Harborview Travel',
+    slug: 'harborview-travel',
+    industry: 'Travel & Hospitality',
+    size: CompanySize.SMALL,
+    location: 'Jaipur, India',
+  },
+  {
+    name: 'Northwind Bank',
+    slug: 'northwind-bank',
+    industry: 'Banking',
+    size: CompanySize.ENTERPRISE,
+    location: 'Mumbai, India',
+  },
+  {
+    name: 'Zephyr Analytics',
+    slug: 'zephyr-analytics',
     industry: 'Data & Analytics',
     size: CompanySize.STARTUP,
     location: 'Remote (India)',
   },
 ];
 
-const SKILLS: readonly SkillSeed[] = [
+interface SkillDef {
+  readonly name: string;
+  readonly slug: string;
+}
+
+// The original 20 skills — slugs MUST stay identical (the frontend depends on them).
+const CORE_SKILLS: readonly SkillDef[] = [
   { name: 'React', slug: 'react' },
   { name: 'TypeScript', slug: 'typescript' },
   { name: 'JavaScript', slug: 'javascript' },
@@ -186,544 +736,279 @@ const SKILLS: readonly SkillSeed[] = [
   { name: 'System Design', slug: 'system-design' },
 ];
 
-const PRIMARY_CANDIDATE: CandidateSeed = {
+// 85 additional realistic tech / data / design / product skills (unique slugs).
+const EXTRA_SKILLS: readonly SkillDef[] = [
+  { name: 'Vue.js', slug: 'vuejs' },
+  { name: 'Angular', slug: 'angular' },
+  { name: 'Svelte', slug: 'svelte' },
+  { name: 'Redux', slug: 'redux' },
+  { name: 'HTML5', slug: 'html5' },
+  { name: 'CSS3', slug: 'css3' },
+  { name: 'Sass', slug: 'sass' },
+  { name: 'Webpack', slug: 'webpack' },
+  { name: 'Vite', slug: 'vite' },
+  { name: 'React Native', slug: 'react-native' },
+  { name: 'NestJS', slug: 'nestjs' },
+  { name: 'FastAPI', slug: 'fastapi' },
+  { name: 'Flask', slug: 'flask' },
+  { name: 'Ruby on Rails', slug: 'ruby-on-rails' },
+  { name: 'Laravel', slug: 'laravel' },
+  { name: 'ASP.NET', slug: 'dotnet' },
+  { name: 'C#', slug: 'csharp' },
+  { name: 'C++', slug: 'cpp' },
+  { name: 'Rust', slug: 'rust' },
+  { name: 'Kotlin', slug: 'kotlin' },
+  { name: 'Swift', slug: 'swift' },
+  { name: 'SwiftUI', slug: 'swiftui' },
+  { name: 'Jetpack Compose', slug: 'jetpack-compose' },
+  { name: 'Android', slug: 'android' },
+  { name: 'iOS', slug: 'ios' },
+  { name: 'Scala', slug: 'scala' },
+  { name: 'PHP', slug: 'php' },
+  { name: 'Ruby', slug: 'ruby' },
+  { name: 'MySQL', slug: 'mysql' },
+  { name: 'MongoDB', slug: 'mongodb' },
+  { name: 'Cassandra', slug: 'cassandra' },
+  { name: 'Elasticsearch', slug: 'elasticsearch' },
+  { name: 'SQL Server', slug: 'sql-server' },
+  { name: 'SQL', slug: 'sql' },
+  { name: 'Snowflake', slug: 'snowflake' },
+  { name: 'dbt', slug: 'dbt' },
+  { name: 'Apache Kafka', slug: 'kafka' },
+  { name: 'Apache Spark', slug: 'spark' },
+  { name: 'Apache Airflow', slug: 'airflow' },
+  { name: 'Hadoop', slug: 'hadoop' },
+  { name: 'Data Modeling', slug: 'data-modeling' },
+  { name: 'Terraform', slug: 'terraform' },
+  { name: 'Ansible', slug: 'ansible' },
+  { name: 'Jenkins', slug: 'jenkins' },
+  { name: 'CI/CD', slug: 'ci-cd' },
+  { name: 'GitHub Actions', slug: 'github-actions' },
+  { name: 'Prometheus', slug: 'prometheus' },
+  { name: 'Grafana', slug: 'grafana' },
+  { name: 'Linux', slug: 'linux' },
+  { name: 'gRPC', slug: 'grpc' },
+  { name: 'REST APIs', slug: 'rest-api' },
+  { name: 'Microservices', slug: 'microservices' },
+  { name: 'Architecture', slug: 'architecture' },
+  { name: 'GCP', slug: 'gcp' },
+  { name: 'Azure', slug: 'azure' },
+  { name: 'Celery', slug: 'celery' },
+  { name: 'Pandas', slug: 'pandas' },
+  { name: 'NumPy', slug: 'numpy' },
+  { name: 'scikit-learn', slug: 'scikit-learn' },
+  { name: 'TensorFlow', slug: 'tensorflow' },
+  { name: 'PyTorch', slug: 'pytorch' },
+  { name: 'Machine Learning', slug: 'machine-learning' },
+  { name: 'Deep Learning', slug: 'deep-learning' },
+  { name: 'MLOps', slug: 'mlops' },
+  { name: 'Statistics', slug: 'statistics' },
+  { name: 'Selenium', slug: 'selenium' },
+  { name: 'Cypress', slug: 'cypress' },
+  { name: 'Playwright', slug: 'playwright' },
+  { name: 'Jest', slug: 'jest' },
+  { name: 'Test Automation', slug: 'test-automation' },
+  { name: 'Cryptography', slug: 'cryptography' },
+  { name: 'Security', slug: 'security' },
+  { name: 'Figma', slug: 'figma' },
+  { name: 'UI Design', slug: 'ui-design' },
+  { name: 'UX Research', slug: 'ux-research' },
+  { name: 'User Research', slug: 'user-research' },
+  { name: 'Usability Testing', slug: 'usability-testing' },
+  { name: 'Prototyping', slug: 'prototyping' },
+  { name: 'Design Systems', slug: 'design-systems' },
+  { name: 'Product Strategy', slug: 'product-strategy' },
+  { name: 'Roadmapping', slug: 'roadmapping' },
+  { name: 'Agile', slug: 'agile' },
+  { name: 'Leadership', slug: 'leadership' },
+  { name: 'Analytics', slug: 'analytics' },
+];
+
+const ALL_SKILLS: readonly SkillDef[] = [...CORE_SKILLS, ...EXTRA_SKILLS];
+
+// ---------------------------------------------------------------------------
+// Named demo accounts (preserved exactly — documented logins keep working)
+// ---------------------------------------------------------------------------
+
+interface NamedCandidate {
+  readonly email: string;
+  readonly firstName: string;
+  readonly lastName: string;
+  readonly headline: string;
+  readonly currentLocation: string;
+  readonly currentCompany: string;
+  readonly currentTitle: string;
+  readonly totalExperienceMonths: number;
+  readonly highestEducation: EducationLevel;
+  readonly skillSlugs: readonly string[];
+}
+
+// The primary candidate (candidate@test.com / Candidate@1234).
+const PRIMARY_CANDIDATE: NamedCandidate = {
   email: PRIMARY_CANDIDATE_EMAIL,
-  password: PRIMARY_CANDIDATE_PASSWORD,
   firstName: 'Priya',
   lastName: 'Sharma',
   headline: 'Senior Full-Stack Engineer · React + Node.js',
-  about:
-    'Full-stack engineer with 6 years of experience building scalable web applications. I enjoy working across the stack, from React front-ends to Node.js services and PostgreSQL data models.',
-  phone: '+91 98765 43210',
   currentLocation: 'Bengaluru, India',
-  preferredLocation: 'Bengaluru, India',
   currentCompany: 'Techwave Solutions',
   currentTitle: 'Senior Software Engineer',
   totalExperienceMonths: 72,
   highestEducation: EducationLevel.MASTERS,
-  expectedSalaryMin: 2800000,
-  expectedSalaryMax: 3600000,
-  noticePeriodDays: 60,
   skillSlugs: ['react', 'typescript', 'nodejs', 'express', 'postgresql', 'prisma', 'aws'],
-  education: [
-    {
-      institution: 'Indian Institute of Technology, Bombay',
-      degree: 'M.Tech',
-      level: EducationLevel.MASTERS,
-      fieldOfStudy: 'Computer Science',
-      startYear: 2016,
-      endYear: 2018,
-    },
-    {
-      institution: 'National Institute of Technology, Trichy',
-      degree: 'B.Tech',
-      level: EducationLevel.BACHELORS,
-      fieldOfStudy: 'Information Technology',
-      startYear: 2012,
-      endYear: 2016,
-    },
-  ],
 };
 
-const ADDITIONAL_CANDIDATES: readonly CandidateSeed[] = [
+// Named secondary candidates (…@test.com / Password@123) from the original seed.
+const NAMED_CANDIDATES: readonly NamedCandidate[] = [
   {
     email: 'rahul.verma@test.com',
-    password: DEMO_USER_PASSWORD,
     firstName: 'Rahul',
     lastName: 'Verma',
     headline: 'Backend Engineer · Node.js & PostgreSQL',
-    about: 'Backend-focused engineer who loves designing clean APIs and reliable data pipelines.',
-    phone: '+91 90000 10001',
     currentLocation: 'Pune, India',
-    preferredLocation: 'Bengaluru, India',
     currentCompany: 'Infosys',
     currentTitle: 'Software Engineer',
     totalExperienceMonths: 48,
     highestEducation: EducationLevel.BACHELORS,
-    expectedSalaryMin: 1800000,
-    expectedSalaryMax: 2400000,
-    noticePeriodDays: 30,
     skillSlugs: ['nodejs', 'express', 'postgresql', 'redis', 'docker'],
-    education: [
-      {
-        institution: 'College of Engineering, Pune',
-        degree: 'B.E.',
-        level: EducationLevel.BACHELORS,
-        fieldOfStudy: 'Computer Engineering',
-        startYear: 2015,
-        endYear: 2019,
-      },
-    ],
   },
   {
     email: 'ananya.iyer@test.com',
-    password: DEMO_USER_PASSWORD,
     firstName: 'Ananya',
     lastName: 'Iyer',
     headline: 'Frontend Engineer · React & TypeScript',
-    about: 'Frontend engineer passionate about accessible, high-performance user interfaces.',
-    phone: '+91 90000 10002',
     currentLocation: 'Bengaluru, India',
-    preferredLocation: 'Remote',
     currentCompany: 'Flipkart',
     currentTitle: 'Frontend Engineer',
     totalExperienceMonths: 36,
     highestEducation: EducationLevel.BACHELORS,
-    expectedSalaryMin: 2000000,
-    expectedSalaryMax: 2600000,
-    noticePeriodDays: 45,
     skillSlugs: ['react', 'typescript', 'javascript', 'nextjs', 'tailwind-css'],
-    education: [
-      {
-        institution: 'PES University',
-        degree: 'B.Tech',
-        level: EducationLevel.BACHELORS,
-        fieldOfStudy: 'Computer Science',
-        startYear: 2016,
-        endYear: 2020,
-      },
-    ],
   },
   {
     email: 'mohammed.khan@test.com',
-    password: DEMO_USER_PASSWORD,
     firstName: 'Mohammed',
     lastName: 'Khan',
     headline: 'Platform Engineer · Kubernetes & AWS',
-    about:
-      'Platform and DevOps engineer focused on developer productivity and reliable infrastructure.',
-    phone: '+91 90000 10003',
     currentLocation: 'Hyderabad, India',
-    preferredLocation: 'Bengaluru, India',
     currentCompany: 'Amazon',
     currentTitle: 'Systems Development Engineer',
     totalExperienceMonths: 84,
     highestEducation: EducationLevel.BACHELORS,
-    expectedSalaryMin: 3200000,
-    expectedSalaryMax: 4200000,
-    noticePeriodDays: 90,
     skillSlugs: ['docker', 'kubernetes', 'aws', 'go', 'system-design'],
-    education: [
-      {
-        institution: 'Birla Institute of Technology and Science, Pilani',
-        degree: 'B.E.',
-        level: EducationLevel.BACHELORS,
-        fieldOfStudy: 'Electronics & Computer Science',
-        startYear: 2011,
-        endYear: 2015,
-      },
-    ],
   },
   {
     email: 'sneha.reddy@test.com',
-    password: DEMO_USER_PASSWORD,
     firstName: 'Sneha',
     lastName: 'Reddy',
     headline: 'Junior Full-Stack Developer',
-    about: 'Recent graduate excited to build products end to end and grow as an engineer.',
-    phone: '+91 90000 10004',
     currentLocation: 'Chennai, India',
-    preferredLocation: 'Chennai, India',
     currentCompany: 'Zoho',
     currentTitle: 'Associate Software Engineer',
     totalExperienceMonths: 14,
     highestEducation: EducationLevel.BACHELORS,
-    expectedSalaryMin: 900000,
-    expectedSalaryMax: 1400000,
-    noticePeriodDays: 30,
     skillSlugs: ['javascript', 'react', 'nodejs', 'postgresql'],
-    education: [
-      {
-        institution: 'Anna University',
-        degree: 'B.E.',
-        level: EducationLevel.BACHELORS,
-        fieldOfStudy: 'Computer Science',
-        startYear: 2019,
-        endYear: 2023,
-      },
-    ],
   },
   {
     email: 'arjun.nair@test.com',
-    password: DEMO_USER_PASSWORD,
     firstName: 'Arjun',
     lastName: 'Nair',
     headline: 'Data Engineer · Python & Analytics',
-    about: 'Data engineer with a strong background in building batch and streaming data platforms.',
-    phone: '+91 90000 10005',
     currentLocation: 'Bengaluru, India',
-    preferredLocation: 'Remote',
     currentCompany: 'Swiggy',
     currentTitle: 'Data Engineer',
     totalExperienceMonths: 60,
     highestEducation: EducationLevel.MASTERS,
-    expectedSalaryMin: 2600000,
-    expectedSalaryMax: 3400000,
-    noticePeriodDays: 60,
     skillSlugs: ['python', 'django', 'postgresql', 'aws', 'system-design'],
-    education: [
-      {
-        institution: 'Indian Institute of Technology, Madras',
-        degree: 'M.Tech',
-        level: EducationLevel.MASTERS,
-        fieldOfStudy: 'Data Science',
-        startYear: 2015,
-        endYear: 2017,
-      },
-    ],
   },
   {
     email: 'kavya.menon@test.com',
-    password: DEMO_USER_PASSWORD,
     firstName: 'Kavya',
     lastName: 'Menon',
     headline: 'Backend Engineer · Java & Spring Boot',
-    about: 'Enterprise backend engineer experienced with high-throughput financial systems.',
-    phone: '+91 90000 10006',
     currentLocation: 'Mumbai, India',
-    preferredLocation: 'Mumbai, India',
     currentCompany: 'ICICI Bank',
     currentTitle: 'Senior Engineer',
     totalExperienceMonths: 96,
     highestEducation: EducationLevel.BACHELORS,
-    expectedSalaryMin: 3000000,
-    expectedSalaryMax: 3800000,
-    noticePeriodDays: 90,
     skillSlugs: ['java', 'spring-boot', 'postgresql', 'redis', 'system-design'],
-    education: [
-      {
-        institution: 'Veermata Jijabai Technological Institute',
-        degree: 'B.Tech',
-        level: EducationLevel.BACHELORS,
-        fieldOfStudy: 'Information Technology',
-        startYear: 2010,
-        endYear: 2014,
-      },
-    ],
   },
   {
     email: 'ishita.gupta@test.com',
-    password: DEMO_USER_PASSWORD,
     firstName: 'Ishita',
     lastName: 'Gupta',
     headline: 'Full-Stack Engineer · Next.js & Node.js',
-    about: 'Product-minded full-stack engineer who ships features quickly without cutting corners.',
-    phone: '+91 90000 10007',
     currentLocation: 'Gurgaon, India',
-    preferredLocation: 'Bengaluru, India',
     currentCompany: 'Paytm',
     currentTitle: 'Software Engineer II',
     totalExperienceMonths: 54,
     highestEducation: EducationLevel.BACHELORS,
-    expectedSalaryMin: 2200000,
-    expectedSalaryMax: 2900000,
-    noticePeriodDays: 60,
     skillSlugs: ['react', 'nextjs', 'nodejs', 'typescript', 'graphql'],
-    education: [
-      {
-        institution: 'Delhi Technological University',
-        degree: 'B.Tech',
-        level: EducationLevel.BACHELORS,
-        fieldOfStudy: 'Software Engineering',
-        startYear: 2015,
-        endYear: 2019,
-      },
-    ],
   },
 ];
 
-const JOBS: readonly JobSeed[] = [
+// Named secondary HR accounts (…@test.com / Password@123) from the original seed.
+interface NamedHr {
+  readonly email: string;
+  readonly firstName: string;
+  readonly lastName: string;
+  readonly companySlug: string;
+  readonly designation: string;
+}
+const NAMED_HR: readonly NamedHr[] = [
   {
-    companySlug: 'acme-cloud',
-    title: 'Senior Full-Stack Engineer',
-    description:
-      'Own end-to-end delivery of features across our React front-end and Node.js platform services. You will design APIs, model data in PostgreSQL, and mentor other engineers.',
-    employmentType: EmploymentType.FULL_TIME,
-    experienceLevel: ExperienceLevel.SENIOR,
-    locationType: LocationType.HYBRID,
-    location: 'Bengaluru, India',
-    minExperienceYears: 5,
-    maxExperienceYears: 9,
-    salaryMin: 2800000,
-    salaryMax: 4000000,
-    openings: 2,
-    status: JobStatus.PUBLISHED,
-    requiredSkillSlugs: ['react', 'typescript', 'nodejs', 'postgresql'],
-    optionalSkillSlugs: ['prisma', 'aws'],
-  },
-  {
-    companySlug: 'acme-cloud',
-    title: 'Platform / DevOps Engineer',
-    description:
-      'Build and operate the infrastructure that powers Acme Cloud. Work with Kubernetes, AWS, and internal tooling to keep our platform fast and reliable.',
-    employmentType: EmploymentType.FULL_TIME,
-    experienceLevel: ExperienceLevel.SENIOR,
-    locationType: LocationType.REMOTE,
-    location: 'Remote (India)',
-    minExperienceYears: 4,
-    maxExperienceYears: 8,
-    salaryMin: 2600000,
-    salaryMax: 3800000,
-    openings: 1,
-    status: JobStatus.PUBLISHED,
-    requiredSkillSlugs: ['docker', 'kubernetes', 'aws'],
-    optionalSkillSlugs: ['go', 'system-design'],
-  },
-  {
-    companySlug: 'acme-cloud',
-    title: 'Frontend Engineer',
-    description:
-      'Craft delightful, accessible user interfaces for our developer dashboard using React, TypeScript, and Tailwind CSS.',
-    employmentType: EmploymentType.FULL_TIME,
-    experienceLevel: ExperienceLevel.MID_LEVEL,
-    locationType: LocationType.HYBRID,
-    location: 'Bengaluru, India',
-    minExperienceYears: 2,
-    maxExperienceYears: 5,
-    salaryMin: 1800000,
-    salaryMax: 2800000,
-    openings: 2,
-    status: JobStatus.PUBLISHED,
-    requiredSkillSlugs: ['react', 'typescript', 'tailwind-css'],
-    optionalSkillSlugs: ['nextjs'],
-  },
-  {
-    companySlug: 'acme-cloud',
-    title: 'Backend Engineering Intern',
-    description:
-      'A 6-month internship building backend services with Node.js and PostgreSQL. Great opportunity to learn production engineering.',
-    employmentType: EmploymentType.INTERNSHIP,
-    experienceLevel: ExperienceLevel.INTERNSHIP,
-    locationType: LocationType.ONSITE,
-    location: 'Bengaluru, India',
-    minExperienceYears: 0,
-    maxExperienceYears: 1,
-    salaryMin: 480000,
-    salaryMax: 600000,
-    openings: 3,
-    status: JobStatus.PUBLISHED,
-    requiredSkillSlugs: ['nodejs', 'javascript'],
-    optionalSkillSlugs: ['postgresql'],
-  },
-  {
-    companySlug: 'acme-cloud',
-    title: 'Engineering Manager (Platform)',
-    description:
-      'Lead a team of platform engineers. This role blends people leadership with hands-on architecture and system design.',
-    employmentType: EmploymentType.FULL_TIME,
-    experienceLevel: ExperienceLevel.EXECUTIVE,
-    locationType: LocationType.HYBRID,
-    location: 'Bengaluru, India',
-    minExperienceYears: 9,
-    maxExperienceYears: 15,
-    salaryMin: 5000000,
-    salaryMax: 7000000,
-    openings: 1,
-    status: JobStatus.DRAFT,
-    requiredSkillSlugs: ['system-design', 'kubernetes'],
-    optionalSkillSlugs: ['aws'],
-  },
-  {
+    email: 'hr.fintrek@test.com',
+    firstName: 'Rohit',
+    lastName: 'Deshmukh',
     companySlug: 'fintrek',
-    title: 'Senior Backend Engineer (Payments)',
-    description:
-      'Design and build resilient payment systems in Java and Spring Boot. Reliability, correctness, and scale are at the heart of this role.',
-    employmentType: EmploymentType.FULL_TIME,
-    experienceLevel: ExperienceLevel.SENIOR,
-    locationType: LocationType.ONSITE,
-    location: 'Mumbai, India',
-    minExperienceYears: 5,
-    maxExperienceYears: 10,
-    salaryMin: 3000000,
-    salaryMax: 4200000,
-    openings: 2,
-    status: JobStatus.PUBLISHED,
-    requiredSkillSlugs: ['java', 'spring-boot', 'postgresql'],
-    optionalSkillSlugs: ['redis', 'system-design'],
+    designation: 'Recruiter',
   },
   {
-    companySlug: 'fintrek',
-    title: 'Full-Stack Engineer',
-    description: 'Ship features across our lending product using Next.js, Node.js, and GraphQL.',
-    employmentType: EmploymentType.FULL_TIME,
-    experienceLevel: ExperienceLevel.MID_LEVEL,
-    locationType: LocationType.HYBRID,
-    location: 'Mumbai, India',
-    minExperienceYears: 3,
-    maxExperienceYears: 6,
-    salaryMin: 2000000,
-    salaryMax: 3000000,
-    openings: 1,
-    status: JobStatus.PUBLISHED,
-    requiredSkillSlugs: ['react', 'nextjs', 'nodejs', 'graphql'],
-    optionalSkillSlugs: ['typescript'],
-  },
-  {
+    email: 'hr.healthsync@test.com',
+    firstName: 'Meera',
+    lastName: 'Pillai',
     companySlug: 'healthsync',
-    title: 'Backend Engineer (Interoperability)',
-    description:
-      'Build healthcare data integrations and APIs in Python and Django. Work with clinical data standards and large datasets.',
-    employmentType: EmploymentType.FULL_TIME,
-    experienceLevel: ExperienceLevel.MID_LEVEL,
-    locationType: LocationType.HYBRID,
-    location: 'Pune, India',
-    minExperienceYears: 3,
-    maxExperienceYears: 7,
-    salaryMin: 1900000,
-    salaryMax: 2900000,
-    openings: 2,
-    status: JobStatus.PUBLISHED,
-    requiredSkillSlugs: ['python', 'django', 'postgresql'],
-    optionalSkillSlugs: ['aws', 'redis'],
+    designation: 'Recruiter',
   },
   {
-    companySlug: 'healthsync',
-    title: 'Contract React Developer',
-    description:
-      'A 6-month contract to help build patient-facing web experiences with React and TypeScript.',
-    employmentType: EmploymentType.CONTRACT,
-    experienceLevel: ExperienceLevel.MID_LEVEL,
-    locationType: LocationType.REMOTE,
-    location: 'Remote (India)',
-    minExperienceYears: 3,
-    maxExperienceYears: 8,
-    salaryMin: 1600000,
-    salaryMax: 2400000,
-    openings: 1,
-    status: JobStatus.CLOSED,
-    requiredSkillSlugs: ['react', 'typescript'],
-    optionalSkillSlugs: ['tailwind-css'],
-  },
-  {
+    email: 'hr.dataforge@test.com',
+    firstName: 'Vikram',
+    lastName: 'Rao',
     companySlug: 'dataforge',
-    title: 'Founding Data Engineer',
-    description:
-      'Join as an early engineer to build our AI-native analytics platform. You will own the data infrastructure end to end.',
-    employmentType: EmploymentType.FULL_TIME,
-    experienceLevel: ExperienceLevel.SENIOR,
-    locationType: LocationType.REMOTE,
-    location: 'Remote (India)',
-    minExperienceYears: 4,
-    maxExperienceYears: 9,
-    salaryMin: 2800000,
-    salaryMax: 4000000,
-    openings: 1,
-    status: JobStatus.PUBLISHED,
-    requiredSkillSlugs: ['python', 'postgresql', 'aws', 'system-design'],
-    optionalSkillSlugs: ['docker'],
-  },
-  {
-    companySlug: 'dataforge',
-    title: 'Full-Stack Engineer (Early Team)',
-    description:
-      'Build our product surface with React and Node.js. High ownership, fast iteration, direct impact.',
-    employmentType: EmploymentType.FULL_TIME,
-    experienceLevel: ExperienceLevel.MID_LEVEL,
-    locationType: LocationType.REMOTE,
-    location: 'Remote (India)',
-    minExperienceYears: 2,
-    maxExperienceYears: 6,
-    salaryMin: 1800000,
-    salaryMax: 2800000,
-    openings: 2,
-    status: JobStatus.PUBLISHED,
-    requiredSkillSlugs: ['react', 'nodejs', 'typescript'],
-    optionalSkillSlugs: ['prisma', 'postgresql'],
+    designation: 'Founder',
   },
 ];
 
-/**
- * Applications the primary candidate has submitted, keyed by job title, so the
- * candidate "Applied Jobs" screen is populated with varied statuses.
- */
-const PRIMARY_CANDIDATE_APPLICATIONS: ReadonlyArray<{
-  jobTitle: string;
-  statusFlow: readonly ApplicationStatus[];
-}> = [
-  {
-    jobTitle: 'Senior Full-Stack Engineer',
-    statusFlow: [
-      ApplicationStatus.APPLIED,
-      ApplicationStatus.UNDER_REVIEW,
-      ApplicationStatus.SHORTLISTED,
-    ],
-  },
-  {
-    jobTitle: 'Platform / DevOps Engineer',
-    statusFlow: [ApplicationStatus.APPLIED, ApplicationStatus.REJECTED],
-  },
-  { jobTitle: 'Full-Stack Engineer (Early Team)', statusFlow: [ApplicationStatus.APPLIED] },
-  {
-    jobTitle: 'Founding Data Engineer',
-    statusFlow: [ApplicationStatus.APPLIED, ApplicationStatus.UNDER_REVIEW],
-  },
-];
-
-/**
- * Applications submitted by other candidates to Acme Cloud jobs (posted by the
- * primary HR), so the HR "View Applicants" + filter screens are populated.
- */
-const APPLICANT_PIPELINE: ReadonlyArray<{
-  candidateEmail: string;
-  jobTitle: string;
-  statusFlow: readonly ApplicationStatus[];
-}> = [
-  {
-    candidateEmail: 'rahul.verma@test.com',
-    jobTitle: 'Senior Full-Stack Engineer',
-    statusFlow: [ApplicationStatus.APPLIED, ApplicationStatus.UNDER_REVIEW],
-  },
-  {
-    candidateEmail: 'ananya.iyer@test.com',
-    jobTitle: 'Frontend Engineer',
-    statusFlow: [
-      ApplicationStatus.APPLIED,
-      ApplicationStatus.SHORTLISTED,
-      ApplicationStatus.INTERVIEW,
-    ],
-  },
-  {
-    candidateEmail: 'mohammed.khan@test.com',
-    jobTitle: 'Platform / DevOps Engineer',
-    statusFlow: [
-      ApplicationStatus.APPLIED,
-      ApplicationStatus.UNDER_REVIEW,
-      ApplicationStatus.SHORTLISTED,
-    ],
-  },
-  {
-    candidateEmail: 'sneha.reddy@test.com',
-    jobTitle: 'Backend Engineering Intern',
-    statusFlow: [ApplicationStatus.APPLIED, ApplicationStatus.OFFERED],
-  },
-  {
-    candidateEmail: 'arjun.nair@test.com',
-    jobTitle: 'Platform / DevOps Engineer',
-    statusFlow: [ApplicationStatus.APPLIED, ApplicationStatus.REJECTED],
-  },
-  {
-    candidateEmail: 'ishita.gupta@test.com',
-    jobTitle: 'Frontend Engineer',
-    statusFlow: [ApplicationStatus.APPLIED, ApplicationStatus.UNDER_REVIEW],
-  },
-  {
-    candidateEmail: 'ananya.iyer@test.com',
-    jobTitle: 'Senior Full-Stack Engineer',
-    statusFlow: [ApplicationStatus.APPLIED],
-  },
+const HR_DESIGNATIONS: readonly string[] = [
+  'Recruiter',
+  'Senior Recruiter',
+  'Talent Acquisition Specialist',
+  'Talent Acquisition Lead',
+  'Technical Recruiter',
+  'HR Manager',
+  'People Operations Lead',
+  'Head of Talent',
 ];
 
 // ---------------------------------------------------------------------------
-// Seeding steps
+// Lookup helpers
 // ---------------------------------------------------------------------------
+
+/** Reads a required value from a lookup map, throwing if the key is missing. */
+function requireId(lookup: Map<string, string>, key: string): string {
+  const value = lookup.get(key);
+  if (!value) {
+    throw new Error(`Seed lookup failed: no id found for "${key}".`);
+  }
+  return value;
+}
 
 async function hashPassword(plainText: string): Promise<string> {
   return bcrypt.hash(plainText, BCRYPT_SALT_ROUNDS);
 }
 
-/**
- * Removes all seeded data in FK-safe order so the script is idempotent.
- */
+// ---------------------------------------------------------------------------
+// Cleanup (FK-safe order) — extends the original approach.
+// ---------------------------------------------------------------------------
+
 async function clearDatabase(): Promise<void> {
   await prisma.applicationStatusEvent.deleteMany();
   await prisma.application.deleteMany();
@@ -738,282 +1023,748 @@ async function clearDatabase(): Promise<void> {
   await prisma.company.deleteMany();
 }
 
+// ---------------------------------------------------------------------------
+// Reference data
+// ---------------------------------------------------------------------------
+
 async function seedCompanies(): Promise<Map<string, string>> {
   const companyIdBySlug = new Map<string, string>();
-
-  for (const company of COMPANIES) {
-    const created = await prisma.company.create({ data: company });
-    companyIdBySlug.set(company.slug, created.id);
-  }
-
+  const rows: Prisma.CompanyCreateManyInput[] = COMPANY_DEFS.map((company) => {
+    const id = randomUUID();
+    companyIdBySlug.set(company.slug, id);
+    return {
+      id,
+      name: company.name,
+      slug: company.slug,
+      website: `https://${company.slug}.example.com`,
+      logoUrl: `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(company.name)}`,
+      about: `${company.name} is a ${company.size.toLowerCase()} ${company.industry.toLowerCase()} company headquartered in ${company.location}, building products loved by their customers.`,
+      industry: company.industry,
+      size: company.size,
+      location: company.location,
+    };
+  });
+  await prisma.company.createMany({ data: rows });
   return companyIdBySlug;
 }
 
 async function seedSkills(): Promise<Map<string, string>> {
   const skillIdBySlug = new Map<string, string>();
-
-  for (const skill of SKILLS) {
-    const created = await prisma.skill.create({ data: skill });
-    skillIdBySlug.set(skill.slug, created.id);
-  }
-
+  const rows: Prisma.SkillCreateManyInput[] = ALL_SKILLS.map((skill) => {
+    const id = randomUUID();
+    skillIdBySlug.set(skill.slug, id);
+    return { id, name: skill.name, slug: skill.slug };
+  });
+  await prisma.skill.createMany({ data: rows });
   return skillIdBySlug;
 }
 
+// ---------------------------------------------------------------------------
+// HR users
+// ---------------------------------------------------------------------------
+
+interface HrRecord {
+  readonly userId: string;
+  readonly companySlug: string;
+}
+
 /**
- * Creates one HR user per company. Returns the primary HR user id (Acme Cloud),
- * which is used as the poster for all jobs and the actor for status changes.
+ * Creates HR users: the primary admin, the named secondaries, then enough
+ * generated recruiters to reach the target — each linked to a company so every
+ * company has at least one HR owner. Returns the primary HR id and the full
+ * roster grouped by company.
  */
-async function seedHrUsers(companyIdBySlug: Map<string, string>): Promise<string> {
-  const primaryHrPasswordHash = await hashPassword(PRIMARY_HR_PASSWORD);
-  const demoPasswordHash = await hashPassword(DEMO_USER_PASSWORD);
+async function seedHrUsers(companyIdBySlug: Map<string, string>): Promise<{
+  primaryHrUserId: string;
+  hrUserIdsByCompanySlug: Map<string, string[]>;
+}> {
+  const primaryHash = await hashPassword(PRIMARY_HR_PASSWORD);
+  const demoHash = await hashPassword(DEMO_USER_PASSWORD);
 
-  const primaryHr = await prisma.user.create({
-    data: {
-      email: PRIMARY_HR_EMAIL,
-      passwordHash: primaryHrPasswordHash,
-      firstName: 'Aisha',
-      lastName: 'Khan',
-      role: UserRole.HR,
-      hrProfile: {
-        create: {
-          companyId: requireId(companyIdBySlug, 'acme-cloud'),
-          designation: 'Talent Acquisition Lead',
-        },
-      },
-    },
-  });
+  const userRows: Prisma.UserCreateManyInput[] = [];
+  const profileRows: Prisma.HrProfileCreateManyInput[] = [];
+  const hrRecords: HrRecord[] = [];
+  const usedEmails = new Set<string>();
 
-  const otherHrDefinitions: ReadonlyArray<{
+  const addHr = (params: {
     email: string;
+    passwordHash: string;
     firstName: string;
     lastName: string;
     companySlug: string;
     designation: string;
-  }> = [
-    {
-      email: 'hr.fintrek@test.com',
-      firstName: 'Rohit',
-      lastName: 'Deshmukh',
-      companySlug: 'fintrek',
-      designation: 'Recruiter',
-    },
-    {
-      email: 'hr.healthsync@test.com',
-      firstName: 'Meera',
-      lastName: 'Pillai',
-      companySlug: 'healthsync',
-      designation: 'Recruiter',
-    },
-    {
-      email: 'hr.dataforge@test.com',
-      firstName: 'Vikram',
-      lastName: 'Rao',
-      companySlug: 'dataforge',
-      designation: 'Founder',
-    },
-  ];
+    createdAt: Date;
+  }): string => {
+    const userId = randomUUID();
+    usedEmails.add(params.email);
+    userRows.push({
+      id: userId,
+      email: params.email,
+      passwordHash: params.passwordHash,
+      firstName: params.firstName,
+      lastName: params.lastName,
+      role: UserRole.HR,
+      createdAt: params.createdAt,
+    });
+    profileRows.push({
+      id: randomUUID(),
+      userId,
+      companyId: requireId(companyIdBySlug, params.companySlug),
+      designation: params.designation,
+    });
+    hrRecords.push({ userId, companySlug: params.companySlug });
+    return userId;
+  };
 
-  for (const hr of otherHrDefinitions) {
-    await prisma.user.create({
-      data: {
-        email: hr.email,
-        passwordHash: demoPasswordHash,
-        firstName: hr.firstName,
-        lastName: hr.lastName,
-        role: UserRole.HR,
-        hrProfile: {
-          create: {
-            companyId: requireId(companyIdBySlug, hr.companySlug),
-            designation: hr.designation,
-          },
-        },
-      },
+  // Primary HR — Acme Cloud.
+  const primaryHrUserId = addHr({
+    email: PRIMARY_HR_EMAIL,
+    passwordHash: primaryHash,
+    firstName: 'Aisha',
+    lastName: 'Khan',
+    companySlug: 'acme-cloud',
+    designation: 'Talent Acquisition Lead',
+    createdAt: daysAgo(300),
+  });
+
+  // Named secondary HR accounts.
+  for (const hr of NAMED_HR) {
+    addHr({
+      email: hr.email,
+      passwordHash: demoHash,
+      firstName: hr.firstName,
+      lastName: hr.lastName,
+      companySlug: hr.companySlug,
+      designation: hr.designation,
+      createdAt: daysAgo(randInt(200, 300)),
     });
   }
 
-  return primaryHr.id;
+  // Ensure every remaining company has at least one HR, then fill to target.
+  const remainingSlugs = COMPANY_DEFS.map((company) => company.slug).filter(
+    (slug) => !hrRecords.some((record) => record.companySlug === slug),
+  );
+
+  let counter = 0;
+  const nextGeneratedHr = (companySlug: string): void => {
+    const firstName = pick(FIRST_NAMES);
+    const lastName = pick(LAST_NAMES);
+    let email = `hr.${firstName}.${lastName}.${companySlug}`.toLowerCase().replace(/\s+/g, '');
+    email = `${email}@talentflow.dev`;
+    while (usedEmails.has(email)) {
+      counter += 1;
+      email =
+        `hr.${firstName}.${lastName}.${companySlug}.${counter}`.toLowerCase().replace(/\s+/g, '') +
+        '@talentflow.dev';
+    }
+    addHr({
+      email,
+      passwordHash: demoHash,
+      firstName,
+      lastName,
+      companySlug,
+      designation: pick(HR_DESIGNATIONS),
+      createdAt: daysAgo(randInt(120, 300)),
+    });
+  };
+
+  for (const slug of remainingSlugs) {
+    nextGeneratedHr(slug);
+  }
+  const companySlugs = COMPANY_DEFS.map((company) => company.slug);
+  while (userRows.length < TARGET_HR_USERS) {
+    nextGeneratedHr(pick(companySlugs));
+  }
+
+  await insertInBatches(userRows, (batch) => prisma.user.createMany({ data: batch }));
+  await insertInBatches(profileRows, (batch) => prisma.hrProfile.createMany({ data: batch }));
+
+  const hrUserIdsByCompanySlug = new Map<string, string[]>();
+  for (const record of hrRecords) {
+    const list = hrUserIdsByCompanySlug.get(record.companySlug) ?? [];
+    list.push(record.userId);
+    hrUserIdsByCompanySlug.set(record.companySlug, list);
+  }
+
+  return { primaryHrUserId, hrUserIdsByCompanySlug };
 }
 
-/**
- * Creates a candidate user with its 1:1 profile, skills, and education in a
- * single nested write. Returns the created CandidateProfile id.
- */
-async function seedCandidate(
-  candidate: CandidateSeed,
-  skillIdBySlug: Map<string, string>,
-): Promise<string> {
-  const passwordHash = await hashPassword(candidate.password);
+// ---------------------------------------------------------------------------
+// Candidates (users + profiles + skills + education)
+// ---------------------------------------------------------------------------
 
-  const user = await prisma.user.create({
-    data: {
-      email: candidate.email,
-      passwordHash,
-      firstName: candidate.firstName,
-      lastName: candidate.lastName,
-      role: UserRole.CANDIDATE,
-      candidateProfile: {
-        create: {
-          headline: candidate.headline,
-          about: candidate.about,
-          phone: candidate.phone,
-          currentLocation: candidate.currentLocation,
-          preferredLocation: candidate.preferredLocation,
-          currentCompany: candidate.currentCompany,
-          currentTitle: candidate.currentTitle,
-          totalExperienceMonths: candidate.totalExperienceMonths,
-          highestEducation: candidate.highestEducation,
-          expectedSalaryMin: candidate.expectedSalaryMin,
-          expectedSalaryMax: candidate.expectedSalaryMax,
-          noticePeriodDays: candidate.noticePeriodDays,
-          skills: {
-            create: candidate.skillSlugs.map((slug) => ({
-              skillId: requireId(skillIdBySlug, slug),
-              proficiency: ProficiencyLevel.ADVANCED,
-            })),
-          },
-          education: {
-            create: candidate.education.map((entry) => ({ ...entry })),
-          },
-        },
-      },
-    },
-    include: { candidateProfile: true },
+interface CandidateRecord {
+  readonly candidateProfileId: string;
+  readonly email: string;
+  readonly totalExperienceMonths: number;
+  readonly skillSlugs: readonly string[];
+}
+
+function composeAbout(): string {
+  return `${pick(ABOUT_OPENERS)} ${pick(ABOUT_MIDDLES)} ${pick(ABOUT_CLOSERS)}`;
+}
+
+function experienceToLevel(months: number): ExperienceLevel {
+  if (months < 12) return ExperienceLevel.INTERNSHIP;
+  if (months < 30) return ExperienceLevel.ENTRY_LEVEL;
+  if (months < 78) return ExperienceLevel.MID_LEVEL;
+  if (months < 132) return ExperienceLevel.SENIOR;
+  return ExperienceLevel.LEAD;
+}
+
+function educationForCandidate(
+  candidateProfileId: string,
+  highestEducation: EducationLevel,
+  totalExperienceMonths: number,
+): Prisma.EducationEntryCreateManyInput[] {
+  const graduationYear = new Date().getFullYear() - Math.floor(totalExperienceMonths / 12) - 1;
+  const rows: Prisma.EducationEntryCreateManyInput[] = [];
+
+  const bachelorsEnd =
+    highestEducation === EducationLevel.MASTERS ? graduationYear - 2 : graduationYear;
+  rows.push({
+    id: randomUUID(),
+    candidateProfileId,
+    institution: pick(COLLEGES),
+    degree: DEGREE_BY_LEVEL[EducationLevel.BACHELORS],
+    level: EducationLevel.BACHELORS,
+    fieldOfStudy: pick(FIELDS_OF_STUDY),
+    startYear: bachelorsEnd - 4,
+    endYear: bachelorsEnd,
+    grade: `${(7 + rng() * 3).toFixed(1)} CGPA`,
   });
 
-  if (!user.candidateProfile) {
-    throw new Error(`Failed to create candidate profile for ${candidate.email}`);
+  if (
+    highestEducation === EducationLevel.MASTERS ||
+    highestEducation === EducationLevel.DOCTORATE
+  ) {
+    rows.push({
+      id: randomUUID(),
+      candidateProfileId,
+      institution: pick(COLLEGES),
+      degree: DEGREE_BY_LEVEL[EducationLevel.MASTERS],
+      level: EducationLevel.MASTERS,
+      fieldOfStudy: pick(FIELDS_OF_STUDY),
+      startYear: graduationYear - 2,
+      endYear: graduationYear,
+      grade: `${(7.5 + rng() * 2.5).toFixed(1)} CGPA`,
+    });
   }
 
-  return user.candidateProfile.id;
+  return rows;
 }
 
-async function seedCandidates(skillIdBySlug: Map<string, string>): Promise<Map<string, string>> {
-  const candidateProfileIdByEmail = new Map<string, string>();
+function candidateSkillsFor(
+  candidateProfileId: string,
+  skillSlugs: readonly string[],
+  skillIdBySlug: Map<string, string>,
+): Prisma.CandidateSkillCreateManyInput[] {
+  const proficiencies: readonly ProficiencyLevel[] = [
+    ProficiencyLevel.BEGINNER,
+    ProficiencyLevel.INTERMEDIATE,
+    ProficiencyLevel.ADVANCED,
+    ProficiencyLevel.EXPERT,
+  ];
+  return skillSlugs.map((slug) => ({
+    id: randomUUID(),
+    candidateProfileId,
+    skillId: requireId(skillIdBySlug, slug),
+    proficiency: pick(proficiencies),
+    yearsOfExperience: randInt(1, 8),
+  }));
+}
 
-  const allCandidates: readonly CandidateSeed[] = [PRIMARY_CANDIDATE, ...ADDITIONAL_CANDIDATES];
+async function seedCandidates(skillIdBySlug: Map<string, string>): Promise<CandidateRecord[]> {
+  const demoHash = await hashPassword(DEMO_USER_PASSWORD);
+  const primaryHash = await hashPassword(PRIMARY_CANDIDATE_PASSWORD);
 
-  for (const candidate of allCandidates) {
-    const profileId = await seedCandidate(candidate, skillIdBySlug);
-    candidateProfileIdByEmail.set(candidate.email, profileId);
+  const userRows: Prisma.UserCreateManyInput[] = [];
+  const profileRows: Prisma.CandidateProfileCreateManyInput[] = [];
+  const skillRows: Prisma.CandidateSkillCreateManyInput[] = [];
+  const educationRows: Prisma.EducationEntryCreateManyInput[] = [];
+  const records: CandidateRecord[] = [];
+  const usedEmails = new Set<string>();
+
+  const allSkillSlugs = ALL_SKILLS.map((skill) => skill.slug);
+
+  const addCandidate = (params: {
+    email: string;
+    passwordHash: string;
+    firstName: string;
+    lastName: string;
+    headline: string;
+    currentLocation: string;
+    currentCompany: string;
+    currentTitle: string;
+    totalExperienceMonths: number;
+    highestEducation: EducationLevel;
+    skillSlugs: readonly string[];
+    createdAt: Date;
+  }): void => {
+    const userId = randomUUID();
+    const candidateProfileId = randomUUID();
+    usedEmails.add(params.email);
+
+    userRows.push({
+      id: userId,
+      email: params.email,
+      passwordHash: params.passwordHash,
+      firstName: params.firstName,
+      lastName: params.lastName,
+      role: UserRole.CANDIDATE,
+      createdAt: params.createdAt,
+    });
+
+    const expectedMin = 600000 + Math.round(params.totalExperienceMonths * 22000);
+    profileRows.push({
+      id: candidateProfileId,
+      userId,
+      headline: params.headline,
+      about: composeAbout(),
+      phone: `+91 ${randInt(70, 99)}${randInt(100, 999)} ${randInt(10000, 99999)}`,
+      currentLocation: params.currentLocation,
+      preferredLocation: chance(0.35) ? 'Remote' : pick(LOCATIONS),
+      currentCompany: params.currentCompany,
+      currentTitle: params.currentTitle,
+      totalExperienceMonths: params.totalExperienceMonths,
+      highestEducation: params.highestEducation,
+      expectedSalaryMin: expectedMin,
+      expectedSalaryMax: expectedMin + randInt(400000, 1200000),
+      noticePeriodDays: pick([0, 15, 30, 45, 60, 90] as const),
+      isOpenToWork: chance(0.82),
+      resumeUrl: `https://resumes.talentflow.dev/${userId}.pdf`,
+      createdAt: params.createdAt,
+    });
+
+    skillRows.push(...candidateSkillsFor(candidateProfileId, params.skillSlugs, skillIdBySlug));
+    educationRows.push(
+      ...educationForCandidate(
+        candidateProfileId,
+        params.highestEducation,
+        params.totalExperienceMonths,
+      ),
+    );
+
+    records.push({
+      candidateProfileId,
+      email: params.email,
+      totalExperienceMonths: params.totalExperienceMonths,
+      skillSlugs: params.skillSlugs,
+    });
+  };
+
+  // Primary + named candidates (preserved exactly).
+  const namedList: ReadonlyArray<{ candidate: NamedCandidate; hash: string }> = [
+    { candidate: PRIMARY_CANDIDATE, hash: primaryHash },
+    ...NAMED_CANDIDATES.map((candidate) => ({ candidate, hash: demoHash })),
+  ];
+  for (const { candidate, hash } of namedList) {
+    addCandidate({
+      email: candidate.email,
+      passwordHash: hash,
+      firstName: candidate.firstName,
+      lastName: candidate.lastName,
+      headline: candidate.headline,
+      currentLocation: candidate.currentLocation,
+      currentCompany: candidate.currentCompany,
+      currentTitle: candidate.currentTitle,
+      totalExperienceMonths: candidate.totalExperienceMonths,
+      highestEducation: candidate.highestEducation,
+      skillSlugs: candidate.skillSlugs,
+      createdAt: daysAgo(randInt(120, 320)),
+    });
   }
 
-  return candidateProfileIdByEmail;
+  // Generated candidates to reach the target volume.
+  const titlePool = ROLE_TEMPLATES.map((role) => role.base);
+  const companyNamePool = [
+    ...COMPANY_DEFS.map((company) => company.name),
+    'Infosys',
+    'TCS',
+    'Wipro',
+    'Accenture',
+    'Cognizant',
+    'Google',
+    'Microsoft',
+    'Freelance',
+  ];
+  let counter = 0;
+  while (userRows.length < TARGET_CANDIDATES) {
+    const firstName = pick(FIRST_NAMES);
+    const lastName = pick(LAST_NAMES);
+    let email = `${firstName}.${lastName}${counter}`.toLowerCase() + '@mail.talentflow.dev';
+    while (usedEmails.has(email)) {
+      counter += 1;
+      email = `${firstName}.${lastName}${counter}`.toLowerCase() + '@mail.talentflow.dev';
+    }
+    counter += 1;
+
+    const totalExperienceMonths = randInt(0, 168);
+    const level = experienceToLevel(totalExperienceMonths);
+    const highestEducation = weightedPick<EducationLevel>([
+      [EducationLevel.BACHELORS, 6],
+      [EducationLevel.MASTERS, 3],
+      [EducationLevel.DIPLOMA, 1],
+      [EducationLevel.DOCTORATE, 1],
+    ]);
+    const role = pick(ROLE_TEMPLATES);
+    const seniority = pick(SENIORITY_BY_LEVEL[level]);
+    const currentTitle = `${seniority} ${role.base}`.trim();
+    const primarySkills = pickDistinct(
+      role.skillSlugs,
+      randInt(3, Math.min(6, role.skillSlugs.length)),
+    );
+    const extraSkills = pickDistinct(allSkillSlugs, randInt(0, 3));
+    const skillSlugs = [...new Set([...primarySkills, ...extraSkills])];
+
+    addCandidate({
+      email,
+      passwordHash: demoHash,
+      firstName,
+      lastName,
+      headline: `${currentTitle} · ${pick(titlePool)} background`,
+      currentLocation: pick(LOCATIONS),
+      currentCompany: pick(companyNamePool),
+      currentTitle,
+      totalExperienceMonths,
+      highestEducation,
+      skillSlugs,
+      createdAt: daysAgo(randInt(30, 340)),
+    });
+  }
+
+  await insertInBatches(userRows, (batch) => prisma.user.createMany({ data: batch }));
+  await insertInBatches(profileRows, (batch) =>
+    prisma.candidateProfile.createMany({ data: batch }),
+  );
+  await insertInBatches(skillRows, (batch) => prisma.candidateSkill.createMany({ data: batch }));
+  await insertInBatches(educationRows, (batch) =>
+    prisma.educationEntry.createMany({ data: batch }),
+  );
+
+  return records;
+}
+
+// ---------------------------------------------------------------------------
+// Jobs (+ job skills)
+// ---------------------------------------------------------------------------
+
+interface JobRecord {
+  readonly jobId: string;
+  readonly postedById: string;
+  readonly status: JobStatus;
+  readonly createdAt: Date;
+}
+
+function composeJobDescription(roleBase: string, companyName: string): string {
+  return [
+    pick(JOB_INTROS),
+    `As a ${roleBase} at ${companyName}, you will:`,
+    `• ${pick(JOB_RESPONSIBILITIES)}`,
+    `• ${pick(JOB_RESPONSIBILITIES)}`,
+    `• ${pick(JOB_RESPONSIBILITIES)}`,
+    pick(JOB_CLOSINGS),
+  ].join('\n');
 }
 
 async function seedJobs(
   companyIdBySlug: Map<string, string>,
   skillIdBySlug: Map<string, string>,
-  postedById: string,
-): Promise<Map<string, string>> {
-  const jobIdByTitle = new Map<string, string>();
+  hrUserIdsByCompanySlug: Map<string, string[]>,
+): Promise<JobRecord[]> {
+  const jobRows: Prisma.JobCreateManyInput[] = [];
+  const jobSkillRows: Prisma.JobSkillCreateManyInput[] = [];
+  const records: JobRecord[] = [];
 
-  for (const job of JOBS) {
-    const requiredSkills = job.requiredSkillSlugs.map((slug) => ({
-      skillId: requireId(skillIdBySlug, slug),
-      isRequired: true,
-    }));
-    const optionalSkills = job.optionalSkillSlugs.map((slug) => ({
-      skillId: requireId(skillIdBySlug, slug),
-      isRequired: false,
-    }));
+  const companySlugs = COMPANY_DEFS.map((company) => company.slug);
+  const companyNameBySlug = new Map(COMPANY_DEFS.map((company) => [company.slug, company.name]));
 
-    const created = await prisma.job.create({
-      data: {
-        companyId: requireId(companyIdBySlug, job.companySlug),
-        postedById,
-        title: job.title,
-        description: job.description,
-        employmentType: job.employmentType,
-        experienceLevel: job.experienceLevel,
-        locationType: job.locationType,
-        location: job.location,
-        minExperienceYears: job.minExperienceYears,
-        maxExperienceYears: job.maxExperienceYears,
-        salaryMin: job.salaryMin,
-        salaryMax: job.salaryMax,
-        salaryPeriod: SalaryPeriod.YEARLY,
-        openings: job.openings,
-        status: job.status,
-        publishedAt: job.status === JobStatus.PUBLISHED ? new Date() : null,
-        skills: { create: [...requiredSkills, ...optionalSkills] },
-      },
+  const levels: ReadonlyArray<readonly [ExperienceLevel, number]> = [
+    [ExperienceLevel.INTERNSHIP, 1],
+    [ExperienceLevel.ENTRY_LEVEL, 2],
+    [ExperienceLevel.MID_LEVEL, 4],
+    [ExperienceLevel.SENIOR, 4],
+    [ExperienceLevel.LEAD, 2],
+    [ExperienceLevel.EXECUTIVE, 1],
+  ];
+  const employmentTypes: ReadonlyArray<readonly [EmploymentType, number]> = [
+    [EmploymentType.FULL_TIME, 8],
+    [EmploymentType.CONTRACT, 2],
+    [EmploymentType.INTERNSHIP, 1],
+    [EmploymentType.PART_TIME, 1],
+    [EmploymentType.FREELANCE, 1],
+  ];
+  const locationTypes: ReadonlyArray<readonly [LocationType, number]> = [
+    [LocationType.ONSITE, 3],
+    [LocationType.HYBRID, 4],
+    [LocationType.REMOTE, 3],
+  ];
+  const statuses: ReadonlyArray<readonly [JobStatus, number]> = [
+    [JobStatus.PUBLISHED, 7],
+    [JobStatus.DRAFT, 2],
+    [JobStatus.CLOSED, 1],
+  ];
+
+  for (let i = 0; i < TARGET_JOBS; i += 1) {
+    // Bias a healthy share of jobs to Acme Cloud so the primary HR has a full board.
+    const companySlug = i < 24 ? 'acme-cloud' : pick(companySlugs);
+    const companyName = companyNameBySlug.get(companySlug) ?? companySlug;
+    const hrPool = hrUserIdsByCompanySlug.get(companySlug) ?? [];
+    if (hrPool.length === 0) {
+      throw new Error(`No HR user available for company "${companySlug}".`);
+    }
+    const postedById = pick(hrPool);
+
+    const role = pick(ROLE_TEMPLATES);
+    const experienceLevel = weightedPick(levels);
+    const employmentType =
+      experienceLevel === ExperienceLevel.INTERNSHIP
+        ? EmploymentType.INTERNSHIP
+        : weightedPick(employmentTypes);
+    const locationType = weightedPick(locationTypes);
+    const status = i < 24 ? JobStatus.PUBLISHED : weightedPick(statuses);
+    const band = SALARY_BY_LEVEL[experienceLevel];
+    const salaryMin = band.min + randInt(0, 3) * 100000;
+    const salaryMax = salaryMin + randInt(3, 12) * 100000;
+
+    const seniority = pick(SENIORITY_BY_LEVEL[experienceLevel]);
+    const title =
+      experienceLevel === ExperienceLevel.EXECUTIVE
+        ? `${seniority} ${role.base.replace(/ (Engineer|Manager|Designer|Researcher|Architect)$/, '')}`.trim()
+        : `${seniority} ${role.base}`.trim();
+
+    const createdAt = daysAgo(randInt(1, 240));
+    const jobId = randomUUID();
+
+    jobRows.push({
+      id: jobId,
+      companyId: requireId(companyIdBySlug, companySlug),
+      postedById,
+      title,
+      description: composeJobDescription(role.base, companyName),
+      employmentType,
+      experienceLevel,
+      locationType,
+      location: locationType === LocationType.REMOTE ? 'Remote (India)' : pick(LOCATIONS),
+      minExperienceYears: band.minExp,
+      maxExperienceYears: band.maxExp,
+      salaryMin,
+      salaryMax,
+      salaryPeriod: SalaryPeriod.YEARLY,
+      openings: randInt(1, 5),
+      status,
+      publishedAt: status === JobStatus.PUBLISHED || status === JobStatus.CLOSED ? createdAt : null,
+      createdAt,
     });
 
-    jobIdByTitle.set(job.title, created.id);
+    // 3–8 connected skills with a required/optional mix.
+    const skillCount = randInt(3, Math.min(8, role.skillSlugs.length));
+    const chosen = pickDistinct(role.skillSlugs, skillCount);
+    chosen.forEach((slug, index) => {
+      jobSkillRows.push({
+        id: randomUUID(),
+        jobId,
+        skillId: requireId(skillIdBySlug, slug),
+        // First ~half are required (must-haves), the rest are nice-to-haves.
+        isRequired: index < Math.ceil(skillCount / 2),
+      });
+    });
+
+    records.push({ jobId, postedById, status, createdAt });
   }
 
-  return jobIdByTitle;
+  await insertInBatches(jobRows, (batch) => prisma.job.createMany({ data: batch }));
+  await insertInBatches(jobSkillRows, (batch) => prisma.jobSkill.createMany({ data: batch }));
+
+  return records;
 }
 
-/**
- * Creates one application and its status-event audit trail. The final status in
- * the flow becomes the application's current status.
- */
-async function createApplicationWithHistory(params: {
-  jobId: string;
-  candidateProfileId: string;
-  statusFlow: readonly ApplicationStatus[];
-  changedById: string;
-}): Promise<void> {
-  const { jobId, candidateProfileId, statusFlow, changedById } = params;
-  const currentStatus = statusFlow[statusFlow.length - 1] ?? ApplicationStatus.APPLIED;
+// ---------------------------------------------------------------------------
+// Applications (+ status-event audit trail)
+// ---------------------------------------------------------------------------
 
-  await prisma.application.create({
-    data: {
-      jobId,
-      candidateProfileId,
-      status: currentStatus,
-      coverLetter:
-        'I am excited about this role and believe my experience is a strong match for the team.',
-      statusEvents: {
-        create: statusFlow.map((status) => ({
-          status,
-          // The initial APPLIED event is recorded by the candidate; later
-          // transitions are recorded by the HR reviewing the application.
-          changedById: status === ApplicationStatus.APPLIED ? null : changedById,
-        })),
-      },
-    },
-  });
+// Ordered hiring pipeline; a flow is a prefix ending at the chosen final status.
+const PIPELINE_ORDER: readonly ApplicationStatus[] = [
+  ApplicationStatus.APPLIED,
+  ApplicationStatus.UNDER_REVIEW,
+  ApplicationStatus.SHORTLISTED,
+  ApplicationStatus.INTERVIEW,
+  ApplicationStatus.OFFERED,
+  ApplicationStatus.HIRED,
+];
+
+const COVER_LETTERS: readonly string[] = [
+  'I am excited about this role and believe my experience is a strong match for the team.',
+  'This opportunity aligns closely with my skills and the kind of impact I want to have.',
+  'I have shipped similar systems before and would love to bring that experience to your team.',
+  'Your product resonates with me and I am confident I can contribute from day one.',
+  'I enjoy the problem space you are working in and would be thrilled to help you scale it.',
+];
+
+/** Builds the ordered status flow that terminates at `finalStatus`. */
+function buildStatusFlow(finalStatus: ApplicationStatus): ApplicationStatus[] {
+  if (finalStatus === ApplicationStatus.REJECTED || finalStatus === ApplicationStatus.WITHDRAWN) {
+    // Progress a little way down the pipeline, then terminate.
+    const depth = randInt(1, 3);
+    return [...PIPELINE_ORDER.slice(0, depth), finalStatus];
+  }
+  const endIndex = PIPELINE_ORDER.indexOf(finalStatus);
+  return PIPELINE_ORDER.slice(0, endIndex + 1);
 }
 
 async function seedApplications(
-  jobIdByTitle: Map<string, string>,
-  candidateProfileIdByEmail: Map<string, string>,
-  primaryHrUserId: string,
-): Promise<void> {
-  const primaryCandidateProfileId = requireId(candidateProfileIdByEmail, PRIMARY_CANDIDATE_EMAIL);
+  candidates: readonly CandidateRecord[],
+  jobs: readonly JobRecord[],
+): Promise<number> {
+  const applicationRows: Prisma.ApplicationCreateManyInput[] = [];
+  const eventRows: Prisma.ApplicationStatusEventCreateManyInput[] = [];
 
-  for (const application of PRIMARY_CANDIDATE_APPLICATIONS) {
-    await createApplicationWithHistory({
-      jobId: requireId(jobIdByTitle, application.jobTitle),
-      candidateProfileId: primaryCandidateProfileId,
-      statusFlow: application.statusFlow,
-      changedById: primaryHrUserId,
+  const openJobs = jobs.filter(
+    (job) => job.status === JobStatus.PUBLISHED || job.status === JobStatus.CLOSED,
+  );
+  if (openJobs.length === 0) {
+    throw new Error('No open jobs available to receive applications.');
+  }
+
+  // Give each job an intrinsic "popularity" weight so some jobs attract many
+  // applicants and others few (realistic long-tail distribution).
+  const jobWeights = new Map<string, number>();
+  for (const job of openJobs) {
+    jobWeights.set(
+      job.jobId,
+      weightedPick<number>([
+        [1, 5],
+        [3, 3],
+        [6, 2],
+        [12, 1],
+      ]),
+    );
+  }
+  const jobById = new Map(jobs.map((job) => [job.jobId, job]));
+
+  const finalStatusDistribution: ReadonlyArray<readonly [ApplicationStatus, number]> = [
+    [ApplicationStatus.APPLIED, 34],
+    [ApplicationStatus.UNDER_REVIEW, 22],
+    [ApplicationStatus.SHORTLISTED, 12],
+    [ApplicationStatus.INTERVIEW, 9],
+    [ApplicationStatus.OFFERED, 4],
+    [ApplicationStatus.HIRED, 3],
+    [ApplicationStatus.REJECTED, 13],
+    [ApplicationStatus.WITHDRAWN, 3],
+  ];
+
+  const taken = new Set<string>(); // `${jobId}:${candidateProfileId}` — enforces the unique constraint.
+
+  const addApplication = (params: {
+    jobId: string;
+    candidateProfileId: string;
+    finalStatus: ApplicationStatus;
+  }): boolean => {
+    const key = `${params.jobId}:${params.candidateProfileId}`;
+    if (taken.has(key)) {
+      return false;
+    }
+    const job = jobById.get(params.jobId);
+    if (!job) {
+      return false;
+    }
+    taken.add(key);
+
+    // Application is created after the job went live; spread across recent months.
+    const jobAgeDays = Math.max(
+      1,
+      Math.floor((Date.now() - job.createdAt.getTime()) / (24 * 60 * 60 * 1000)),
+    );
+    const appliedDaysAgo = randInt(0, Math.min(jobAgeDays, 180));
+    const createdAt = daysAgo(appliedDaysAgo);
+
+    const applicationId = randomUUID();
+    const flow = buildStatusFlow(params.finalStatus);
+
+    applicationRows.push({
+      id: applicationId,
+      jobId: params.jobId,
+      candidateProfileId: params.candidateProfileId,
+      status: params.finalStatus,
+      coverLetter: chance(0.7) ? pick(COVER_LETTERS) : null,
+      resumeUrl: `https://resumes.talentflow.dev/${params.candidateProfileId}.pdf`,
+      createdAt,
+    });
+
+    // One audit event per transition, timestamps marching forward from apply.
+    flow.forEach((status, index) => {
+      eventRows.push({
+        id: randomUUID(),
+        applicationId,
+        status,
+        note: null,
+        // The initial APPLIED event is the candidate's action; later transitions
+        // are recorded by the HR who owns the job.
+        changedById: status === ApplicationStatus.APPLIED ? null : job.postedById,
+        createdAt: new Date(createdAt.getTime() + index * 3 * 24 * 60 * 60 * 1000),
+      });
+    });
+    return true;
+  };
+
+  // 1) Guarantee the primary candidate a rich, varied application board on the
+  //    primary HR's (Acme Cloud) jobs so the demo screens are populated.
+  const primaryCandidate = candidates.find(
+    (candidate) => candidate.email === PRIMARY_CANDIDATE_EMAIL,
+  );
+  if (primaryCandidate) {
+    const demoStatuses: readonly ApplicationStatus[] = [
+      ApplicationStatus.SHORTLISTED,
+      ApplicationStatus.INTERVIEW,
+      ApplicationStatus.OFFERED,
+      ApplicationStatus.UNDER_REVIEW,
+      ApplicationStatus.APPLIED,
+      ApplicationStatus.REJECTED,
+    ];
+    const jobsForPrimary = shuffled(openJobs).slice(0, demoStatuses.length);
+    jobsForPrimary.forEach((job, index) => {
+      addApplication({
+        jobId: job.jobId,
+        candidateProfileId: primaryCandidate.candidateProfileId,
+        finalStatus: demoStatuses[index] ?? ApplicationStatus.APPLIED,
+      });
     });
   }
 
-  for (const application of APPLICANT_PIPELINE) {
-    await createApplicationWithHistory({
-      jobId: requireId(jobIdByTitle, application.jobTitle),
-      candidateProfileId: requireId(candidateProfileIdByEmail, application.candidateEmail),
-      statusFlow: application.statusFlow,
-      changedById: primaryHrUserId,
-    });
+  // 2) Popularity-driven bulk generation. Each job draws applicants up to its
+  //    weight; candidates are sampled without replacement per job.
+  for (const job of openJobs) {
+    const targetApplicants = jobWeights.get(job.jobId) ?? 1;
+    const applicantPool = pickDistinct(candidates, targetApplicants + randInt(0, 2));
+    for (const candidate of applicantPool) {
+      addApplication({
+        jobId: job.jobId,
+        candidateProfileId: candidate.candidateProfileId,
+        finalStatus: weightedPick(finalStatusDistribution),
+      });
+    }
   }
-}
 
-/**
- * Reads a required value from a lookup map, throwing a descriptive error if the
- * key is missing. Guarantees a non-null id without weakening type safety.
- */
-function requireId(lookup: Map<string, string>, key: string): string {
-  const value = lookup.get(key);
-  if (!value) {
-    throw new Error(`Seed lookup failed: no id found for "${key}".`);
+  // 3) Candidate-driven top-up so most candidates have several applications and
+  //    the total comfortably clears the target volume.
+  for (const candidate of candidates) {
+    const desired = randInt(3, 10);
+    const jobsForCandidate = pickDistinct(openJobs, desired);
+    for (const job of jobsForCandidate) {
+      addApplication({
+        jobId: job.jobId,
+        candidateProfileId: candidate.candidateProfileId,
+        finalStatus: weightedPick(finalStatusDistribution),
+      });
+    }
   }
-  return value;
+
+  await insertInBatches(applicationRows, (batch) => prisma.application.createMany({ data: batch }));
+  await insertInBatches(eventRows, (batch) =>
+    prisma.applicationStatusEvent.createMany({ data: batch }),
+  );
+
+  return applicationRows.length;
 }
 
 // ---------------------------------------------------------------------------
@@ -1031,21 +1782,24 @@ async function main(): Promise<void> {
   const skillIdBySlug = await seedSkills();
   console.info(`  ✓ ${skillIdBySlug.size} skills`);
 
-  const primaryHrUserId = await seedHrUsers(companyIdBySlug);
-  console.info('  ✓ HR users');
+  const { primaryHrUserId, hrUserIdsByCompanySlug } = await seedHrUsers(companyIdBySlug);
+  void primaryHrUserId;
+  const hrCount = [...hrUserIdsByCompanySlug.values()].reduce((sum, list) => sum + list.length, 0);
+  console.info(`  ✓ ${hrCount} HR users across ${hrUserIdsByCompanySlug.size} companies`);
 
-  const candidateProfileIdByEmail = await seedCandidates(skillIdBySlug);
-  console.info(`  ✓ ${candidateProfileIdByEmail.size} candidates`);
+  const candidates = await seedCandidates(skillIdBySlug);
+  console.info(`  ✓ ${candidates.length} candidates (with profiles, skills, education)`);
 
-  const jobIdByTitle = await seedJobs(companyIdBySlug, skillIdBySlug, primaryHrUserId);
-  console.info(`  ✓ ${jobIdByTitle.size} jobs`);
+  const jobs = await seedJobs(companyIdBySlug, skillIdBySlug, hrUserIdsByCompanySlug);
+  console.info(`  ✓ ${jobs.length} jobs`);
 
-  await seedApplications(jobIdByTitle, candidateProfileIdByEmail, primaryHrUserId);
-  console.info('  ✓ applications');
+  const applicationCount = await seedApplications(candidates, jobs);
+  console.info(`  ✓ ${applicationCount} applications (with status-event history)`);
 
   console.info('✅ Seed complete.');
   console.info(`   HR login:        ${PRIMARY_HR_EMAIL} / ${PRIMARY_HR_PASSWORD}`);
   console.info(`   Candidate login: ${PRIMARY_CANDIDATE_EMAIL} / ${PRIMARY_CANDIDATE_PASSWORD}`);
+  console.info(`   Other demo accounts use the password: ${DEMO_USER_PASSWORD}`);
 }
 
 main()

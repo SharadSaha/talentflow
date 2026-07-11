@@ -6,8 +6,10 @@ import { MobileNav } from '@/components/ui/mobile-nav';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
 import { ROUTES } from '@/constants/routes';
 import { GithubIcon } from '@/features/landing/components/BrandIcons';
+import { LoginRoleDialog } from '@/features/landing/components/LoginRoleDialog';
 import { NAV_LINKS } from '@/features/landing/data/navigation';
 import { useScrolled } from '@/features/landing/hooks/useScrolled';
+import { useDisclosure } from '@/hooks/useDisclosure';
 import { cn } from '@/lib/utils';
 
 const GITHUB_URL = '#';
@@ -19,6 +21,7 @@ const GITHUB_URL = '#';
  */
 export function LandingNav() {
   const scrolled = useScrolled();
+  const loginDialog = useDisclosure();
 
   return (
     <header
@@ -60,8 +63,13 @@ export function LandingNav() {
           <Button asChild variant="ghost" size="sm" className="hidden sm:inline-flex">
             <Link to={ROUTES.AUTH.HR_LOGIN}>For employers</Link>
           </Button>
-          <Button asChild variant="ghost" size="sm" className="hidden sm:inline-flex">
-            <Link to={ROUTES.AUTH.CANDIDATE_LOGIN}>Log in</Link>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="hidden sm:inline-flex"
+            onClick={loginDialog.open}
+          >
+            Log in
           </Button>
           <Button asChild size="sm" className="hidden sm:inline-flex">
             <Link to={ROUTES.AUTH.CANDIDATE_REGISTER}>Get started</Link>
@@ -86,8 +94,8 @@ export function LandingNav() {
                   <Button asChild variant="outline" className="w-full">
                     <Link to={ROUTES.AUTH.HR_LOGIN}>I&apos;m hiring</Link>
                   </Button>
-                  <Button asChild variant="ghost" className="w-full">
-                    <Link to={ROUTES.AUTH.CANDIDATE_LOGIN}>Log in</Link>
+                  <Button variant="ghost" className="w-full" onClick={loginDialog.open}>
+                    Log in
                   </Button>
                 </div>
               </div>
@@ -95,6 +103,8 @@ export function LandingNav() {
           </div>
         </div>
       </nav>
+
+      <LoginRoleDialog open={loginDialog.isOpen} onOpenChange={loginDialog.setOpen} />
     </header>
   );
 }
