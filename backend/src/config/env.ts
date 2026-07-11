@@ -17,8 +17,8 @@ const envSchema = z.object({
   DATABASE_URL: z.string().optional(),
   REDIS_URL: z.string().optional(),
 
-  // Auth secrets — implementation comes later; kept optional for scaffolding.
-  JWT_SECRET: z.string().optional(),
+  // Auth secrets. A secret is mandatory so the app fails fast if it is missing.
+  JWT_SECRET: z.string().min(16, 'JWT_SECRET must be at least 16 characters long.'),
   JWT_EXPIRES_IN: z.string().default('1d'),
 
   RATE_LIMIT_WINDOW_MS: z.coerce
@@ -32,7 +32,10 @@ const envSchema = z.object({
 const parsed = envSchema.safeParse(process.env);
 
 if (!parsed.success) {
-  console.error('❌ Invalid environment variables:', z.treeifyError(parsed.error));
+  // Written directly to stderr rather than via the logger: the logger itself
+  // depends on this module, so it cannot report a failure to load it.
+  const details = JSON.stringify(z.treeifyError(parsed.error), null, 2);
+  process.stderr.write(`Invalid environment variables:\n${details}\n`);
   throw new Error('Invalid environment configuration. See errors above.');
 }
 

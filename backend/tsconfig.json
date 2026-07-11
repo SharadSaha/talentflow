@@ -18,6 +18,7 @@
     "forceConsistentCasingInFileNames": true,
 
     "strict": true,
+    "isolatedModules": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,

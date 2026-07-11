@@ -1,17 +1,18 @@
 import { createApp } from '@/app';
 import { env } from '@/config/env';
+import { logger } from '@/config/logger';
 
 const app = createApp();
 
 const server = app.listen(env.PORT, () => {
-  console.log(`🚀 TalentFlow backend listening on http://localhost:${env.PORT} [${env.NODE_ENV}]`);
+  logger.info('TalentFlow backend started', { port: env.PORT, environment: env.NODE_ENV });
 });
 
 // Graceful shutdown.
 const shutdown = (signal: string) => {
-  console.log(`\n${signal} received — shutting down gracefully...`);
+  logger.info('Shutting down gracefully', { signal });
   server.close(() => {
-    console.log('HTTP server closed.');
+    logger.info('HTTP server closed.');
     process.exit(0);
   });
 };

@@ -1,18 +1,20 @@
-import express, { type Application, type Request, type Response, type NextFunction } from 'express';
-import helmet from 'helmet';
-import cors from 'cors';
-import morgan from 'morgan';
 import compression from 'compression';
 import cookieParser from 'cookie-parser';
+import cors from 'cors';
+import express, { type Application, type Request, type Response } from 'express';
 import { rateLimit } from 'express-rate-limit';
+import helmet from 'helmet';
+import morgan from 'morgan';
 
-import { env, corsOrigins, isTest } from '@/config/env';
+import { corsOrigins, env, isTest } from '@/config/env';
+import { API_V1_PREFIX } from '@/constants/routes';
+import { errorHandler } from '@/middlewares/error-handler';
+import { notFound } from '@/middlewares/not-found';
+import { v1Router } from '@/routes';
 
 /**
- * Builds and configures the Express application.
- *
- * Only cross-cutting infrastructure middleware is wired here. Feature routes,
- * authentication, and business logic are intentionally NOT implemented yet.
+ * Builds and configures the Express application: cross-cutting infrastructure
+ * middleware, versioned feature routes, and centralised 404 + error handling.
  */
 export function createApp(): Application {
   const app = express();
@@ -64,22 +66,12 @@ export function createApp(): Application {
     });
   });
 
-  // API root placeholder. Feature routers will be mounted under /api later.
-  app.get('/api', (_req: Request, res: Response) => {
-    res.status(200).json({ message: 'TalentFlow API — coming soon.' });
-  });
+  // Versioned API routes.
+  app.use(API_V1_PREFIX, v1Router);
 
-  // 404 handler.
-  app.use((_req: Request, res: Response) => {
-    res.status(404).json({ error: 'Not Found' });
-  });
-
-  // Centralised error handler. Express identifies error handlers by their
-  // 4-argument signature, so `next` must be present even though it is unused.
-  app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
-    console.error(err);
-    res.status(500).json({ error: 'Internal Server Error' });
-  });
+  // Unmatched routes and centralised error handling (registered last).
+  app.use(notFound);
+  app.use(errorHandler);
 
   return app;
 }

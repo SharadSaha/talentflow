@@ -1,4 +1,5 @@
 import request from 'supertest';
+
 import { createApp } from '@/app';
 
 const app = createApp();
@@ -11,17 +12,10 @@ describe('Infrastructure', () => {
     expect(res.body).toMatchObject({ status: 'ok', service: 'talentflow-backend' });
   });
 
-  it('GET /api returns the placeholder message', async () => {
-    const res = await request(app).get('/api');
-
-    expect(res.status).toBe(200);
-    expect(res.body).toHaveProperty('message');
-  });
-
-  it('unknown routes return 404', async () => {
+  it('unknown routes return a consistent 404 error shape', async () => {
     const res = await request(app).get('/does-not-exist');
 
     expect(res.status).toBe(404);
-    expect(res.body).toEqual({ error: 'Not Found' });
+    expect(res.body).toMatchObject({ success: false, message: expect.any(String), errors: [] });
   });
 });
