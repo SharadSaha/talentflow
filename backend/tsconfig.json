@@ -1,15 +1,13 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "module": "commonjs",
-    "ignoreDeprecations": "6.0",
-    "moduleResolution": "node",
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
     "lib": ["ES2022"],
     "types": ["node", "jest"],
 
     "rootDir": ".",
     "outDir": "./dist",
-    "baseUrl": ".",
     "paths": {
       "@/*": ["./src/*"]
     },
