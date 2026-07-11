@@ -8,20 +8,23 @@ import { USER_ROLE } from '@/constants/roles';
 import { AuthLayout } from '@/layouts/AuthLayout';
 import { CandidateLayout } from '@/layouts/CandidateLayout';
 import { HRLayout } from '@/layouts/HRLayout';
-import { PublicLayout } from '@/layouts/PublicLayout';
 import { NotFoundPage } from '@/pages/NotFoundPage';
 import { UnauthorizedPage } from '@/pages/UnauthorizedPage';
 import { GuestRoute } from '@/routes/GuestRoute';
 import { ProtectedRoute } from '@/routes/ProtectedRoute';
 import { RoleRoute } from '@/routes/RoleRoute';
+import { RootLayout } from '@/routes/RootLayout';
 
-// Auth pages are route-based code-split; their suspense boundary lives in AuthLayout.
+// Route-based code splitting keeps heavy chunks (landing + Framer Motion, auth
+// pages) out of the initial bundle. Suspense boundaries live in RootLayout.
+const LandingPage = lazy(() => import('@/features/landing/pages/LandingPage'));
 const LoginPage = lazy(() => import('@/features/auth/pages/LoginPage'));
 const RegisterPage = lazy(() => import('@/features/auth/pages/RegisterPage'));
 
 /**
- * Application route tree. Structure, not features: public/auth shells, auth and
- * role guards, and role-namespaced authenticated areas (`/candidate`, `/hr`).
+ * Application route tree. Structure, not features: the public landing page, auth
+ * and role guards, and role-namespaced authenticated areas (`/candidate`,
+ * `/hr`).
  *
  * Child paths are RELATIVE and each authenticated area is a `path`-prefixed
  * layout route — the idiomatic React Router shape. (Absolute paths nested under
@@ -31,23 +34,11 @@ const RegisterPage = lazy(() => import('@/features/auth/pages/RegisterPage'));
  */
 export const routes: RouteObject[] = [
   {
+    element: <RootLayout />,
     errorElement: <RouteErrorBoundary />,
     children: [
-      // Public
-      {
-        element: <PublicLayout />,
-        children: [
-          {
-            index: true,
-            element: (
-              <PlaceholderPage
-                title="Welcome to TalentFlow"
-                description="The public landing experience will live here."
-              />
-            ),
-          },
-        ],
-      },
+      // Public landing (self-contained: its own nav + footer)
+      { index: true, element: <LandingPage /> },
 
       // Guest-only auth
       {

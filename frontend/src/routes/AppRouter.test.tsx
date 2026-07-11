@@ -68,7 +68,9 @@ describe('AppRouter', () => {
 
   it('renders the public landing at /', async () => {
     renderApp('/');
-    expect(await screen.findByText('Welcome to TalentFlow')).toBeInTheDocument();
+    expect(
+      await screen.findByRole('heading', { name: /keeps pace with your team/i }),
+    ).toBeInTheDocument();
   });
 
   it('redirects an unauthenticated visitor away from a protected route to login', async () => {

@@ -25,6 +25,23 @@ beforeAll(() => {
       disconnect(): void {}
     };
   }
+
+  // jsdom lacks IntersectionObserver, which Framer Motion's scroll-reveal
+  // (`useInView`) relies on. Stub it so landing-page components render in tests.
+  if (!window.IntersectionObserver) {
+    class MockIntersectionObserver implements IntersectionObserver {
+      readonly root = null;
+      readonly rootMargin = '';
+      readonly thresholds = [];
+      observe(): void {}
+      unobserve(): void {}
+      disconnect(): void {}
+      takeRecords(): IntersectionObserverEntry[] {
+        return [];
+      }
+    }
+    window.IntersectionObserver = MockIntersectionObserver;
+  }
 });
 
 // Ensure the DOM is reset between tests.

@@ -341,6 +341,25 @@
   }
 }
 
+/*
+ * Decorative background helpers for marketing surfaces (e.g. the landing page).
+ * Token-driven so they adapt to the active theme; kept here to avoid repeating
+ * the gradient definitions across components.
+ */
+@layer components {
+  .bg-grid {
+    background-image:
+      linear-gradient(to right, hsl(var(--border) / 0.55) 1px, transparent 1px),
+      linear-gradient(to bottom, hsl(var(--border) / 0.55) 1px, transparent 1px);
+    background-size: 3.5rem 3.5rem;
+  }
+
+  .bg-dots {
+    background-image: radial-gradient(hsl(var(--border) / 0.9) 1px, transparent 1px);
+    background-size: 1.5rem 1.5rem;
+  }
+}
+
 /* Honour the user's reduced-motion preference across all animations. */
 @media (prefers-reduced-motion: reduce) {
   *,
