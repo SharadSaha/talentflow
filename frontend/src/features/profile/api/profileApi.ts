@@ -1,12 +1,14 @@
 import { API_ENDPOINTS } from '@/constants/api';
+import type { UpdateProfileRequest } from '@/features/profile/types/profile.types';
 import { baseApi, CACHE_TAGS } from '@/services/api/baseApi';
 import type { ApiSuccessResponse } from '@/types/api';
 import type { CandidateProfile } from '@/types/profile';
 
 /**
- * Profile endpoints injected into the base API. The infrastructure provides the
- * current candidate's profile query; mutations are added with the profile
- * feature. Extends the same base API — no separate client.
+ * Profile endpoints injected into the base API. Reads the current candidate's
+ * profile and updates it. The update applies an optimistic patch to the cached
+ * profile (rolled back on failure) and invalidates the dashboard so the profile
+ * completion metric stays in sync.
  */
 export const profileApi = baseApi.injectEndpoints({
   endpoints: (builder) => ({
@@ -15,7 +17,27 @@ export const profileApi = baseApi.injectEndpoints({
       transformResponse: (response: ApiSuccessResponse<CandidateProfile>) => response.data,
       providesTags: [CACHE_TAGS.Profile],
     }),
+
+    updateProfile: builder.mutation<CandidateProfile, UpdateProfileRequest>({
+      query: (body) => ({ url: API_ENDPOINTS.PROFILE.ROOT, method: 'PATCH', body }),
+      transformResponse: (response: ApiSuccessResponse<CandidateProfile>) => response.data,
+      async onQueryStarted(patch, { dispatch, queryFulfilled }) {
+        const optimistic = dispatch(
+          profileApi.util.updateQueryData('getMyProfile', undefined, (draft) => {
+            Object.assign(draft, patch);
+          }),
+        );
+        try {
+          const { data } = await queryFulfilled;
+          dispatch(profileApi.util.updateQueryData('getMyProfile', undefined, () => data));
+        } catch {
+          optimistic.undo();
+        }
+      },
+      invalidatesTags: [{ type: CACHE_TAGS.Dashboard, id: 'CANDIDATE' }],
+    }),
   }),
 });
 
-export const { useGetMyProfileQuery, useLazyGetMyProfileQuery } = profileApi;
+export const { useGetMyProfileQuery, useLazyGetMyProfileQuery, useUpdateProfileMutation } =
+  profileApi;

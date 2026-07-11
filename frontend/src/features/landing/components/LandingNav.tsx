@@ -58,10 +58,13 @@ export function LandingNav() {
           </Button>
           <ThemeToggle />
           <Button asChild variant="ghost" size="sm" className="hidden sm:inline-flex">
-            <Link to={ROUTES.LOGIN}>Log in</Link>
+            <Link to={ROUTES.AUTH.HR_LOGIN}>For employers</Link>
+          </Button>
+          <Button asChild variant="ghost" size="sm" className="hidden sm:inline-flex">
+            <Link to={ROUTES.AUTH.CANDIDATE_LOGIN}>Log in</Link>
           </Button>
           <Button asChild size="sm" className="hidden sm:inline-flex">
-            <Link to={ROUTES.REGISTER}>Get started</Link>
+            <Link to={ROUTES.AUTH.CANDIDATE_REGISTER}>Get started</Link>
           </Button>
 
           <div className="md:hidden">
@@ -77,11 +80,14 @@ export function LandingNav() {
                   </a>
                 ))}
                 <div className="mt-3 flex flex-col gap-2 border-t border-border pt-4">
-                  <Button asChild variant="outline" className="w-full">
-                    <Link to={ROUTES.LOGIN}>Log in</Link>
-                  </Button>
                   <Button asChild className="w-full">
-                    <Link to={ROUTES.REGISTER}>Get started</Link>
+                    <Link to={ROUTES.AUTH.CANDIDATE_REGISTER}>I&apos;m looking for a job</Link>
+                  </Button>
+                  <Button asChild variant="outline" className="w-full">
+                    <Link to={ROUTES.AUTH.HR_LOGIN}>I&apos;m hiring</Link>
+                  </Button>
+                  <Button asChild variant="ghost" className="w-full">
+                    <Link to={ROUTES.AUTH.CANDIDATE_LOGIN}>Log in</Link>
                   </Button>
                 </div>
               </div>

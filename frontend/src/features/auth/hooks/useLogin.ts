@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 
 import { toast } from '@/components/ui/sonner';
 import { getHomeRouteForRole } from '@/constants/routes';
+import { USER_ROLE_LABELS, type UserRole } from '@/constants/roles';
 import { useLoginMutation } from '@/features/auth/api/authApi';
 import type { LoginFormValues } from '@/features/auth/schemas/auth.schemas';
 import { setCredentials } from '@/reducers/authSlice';
@@ -33,8 +34,13 @@ interface UseLoginResult {
  * "remember me" choice, stores credentials, notifies the user, and redirects to
  * their role home (or the originally requested page). Returns a normalised error
  * on failure so the form can surface field-level messages.
+ *
+ * `expectedRole` is the role of the login page the user submitted from. The
+ * user's actual role (from the server) always drives the redirect — so no one
+ * lands in the wrong portal — but if it differs from `expectedRole` we surface a
+ * friendly notice explaining the redirect.
  */
-export function useLogin(): UseLoginResult {
+export function useLogin(expectedRole?: UserRole): UseLoginResult {
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
   const location = useLocation();
@@ -50,7 +56,14 @@ export function useLogin(): UseLoginResult {
 
         tokenService.set(accessToken, values.rememberMe);
         dispatch(setCredentials({ user, token: accessToken }));
-        toast.success(`Welcome back, ${user.firstName}.`);
+
+        if (expectedRole && user.role !== expectedRole) {
+          toast.success(
+            `Signed in as ${USER_ROLE_LABELS[user.role]} — taking you to your workspace.`,
+          );
+        } else {
+          toast.success(`Welcome back, ${user.firstName}.`);
+        }
 
         const fromPath = (location.state as LocationState | null)?.from?.pathname;
         navigate(resolveRedirect(fromPath, getHomeRouteForRole(user.role)), { replace: true });
@@ -60,7 +73,7 @@ export function useLogin(): UseLoginResult {
         return normalizeApiError(error);
       }
     },
-    [dispatch, navigate, location.state, loginRequest],
+    [dispatch, navigate, location.state, loginRequest, expectedRole],
   );
 
   return { login, isLoading };

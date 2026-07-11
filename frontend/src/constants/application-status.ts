@@ -32,3 +32,25 @@ export const APPLICATION_STATUS_META: Record<ApplicationStatus, StatusDescriptor
   [APPLICATION_STATUS.REJECTED]: { label: 'Rejected', intent: 'danger' },
   [APPLICATION_STATUS.WITHDRAWN]: { label: 'Withdrawn', intent: 'neutral' },
 };
+
+/** Statuses from which a candidate may withdraw. Mirrors the backend rule. */
+const WITHDRAWABLE_STATUSES: ReadonlySet<ApplicationStatus> = new Set([
+  APPLICATION_STATUS.APPLIED,
+  APPLICATION_STATUS.UNDER_REVIEW,
+  APPLICATION_STATUS.SHORTLISTED,
+  APPLICATION_STATUS.INTERVIEW,
+  APPLICATION_STATUS.OFFERED,
+]);
+
+/** Whether a candidate may withdraw an application in the given status. */
+export function isWithdrawable(status: ApplicationStatus): boolean {
+  return WITHDRAWABLE_STATUSES.has(status);
+}
+
+/** Status filter options (all statuses) for the applied-jobs page. */
+export const APPLICATION_STATUS_FILTER_OPTIONS: { value: ApplicationStatus; label: string }[] = (
+  Object.keys(APPLICATION_STATUS_META) as ApplicationStatus[]
+).map((status) => ({
+  value: status,
+  label: APPLICATION_STATUS_META[status].label,
+}));

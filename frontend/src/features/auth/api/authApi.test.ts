@@ -85,7 +85,7 @@ describe('authApi', () => {
     mockFetchOnce({
       success: true,
       message: 'Current user fetched successfully.',
-      data: authResult.user,
+      data: { user: authResult.user },
     });
     const store = makeStore();
 

@@ -1,10 +1,7 @@
+import type { EducationLevel, ProficiencyLevel } from '@/constants/education';
 import type { UserRole } from '@/constants/roles';
 
-/**
- * Candidate profile contracts, mirroring the backend `CandidateProfileDto`.
- * Domain enum fields (education/proficiency levels) are typed as strings here;
- * the profile feature will narrow them when its pages are built.
- */
+/** Candidate profile contracts, mirroring the backend `CandidateProfileDto`. */
 
 export interface ProfileOwner {
   id: string;
@@ -18,7 +15,7 @@ export interface ProfileSkill {
   id: string;
   name: string;
   slug: string;
-  proficiency: string | null;
+  proficiency: ProficiencyLevel | null;
   yearsOfExperience: number | null;
 }
 
@@ -26,7 +23,7 @@ export interface ProfileEducation {
   id: string;
   institution: string;
   degree: string | null;
-  level: string;
+  level: EducationLevel;
   fieldOfStudy: string | null;
   startYear: number | null;
   endYear: number | null;
@@ -44,7 +41,7 @@ export interface CandidateProfile {
   currentCompany: string | null;
   currentTitle: string | null;
   totalExperienceMonths: number;
-  highestEducation: string | null;
+  highestEducation: EducationLevel | null;
   expectedSalaryMin: number | null;
   expectedSalaryMax: number | null;
   salaryCurrency: string;

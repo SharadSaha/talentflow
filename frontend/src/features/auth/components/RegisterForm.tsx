@@ -5,7 +5,6 @@ import { useForm } from 'react-hook-form';
 import { Button } from '@/components/ui/button';
 import { ControlledInput } from '@/components/ui/controlled-input';
 import { Form } from '@/components/ui/form';
-import { ROUTES } from '@/constants/routes';
 import { useRegister } from '@/features/auth/hooks/useRegister';
 import { type RegisterFormValues, registerSchema } from '@/features/auth/schemas/auth.schemas';
 import { applyServerFieldErrors } from '@/utils/form-errors';
@@ -17,12 +16,17 @@ const DEFAULT_VALUES: RegisterFormValues = {
   confirmPassword: '',
 };
 
+interface RegisterFormProps {
+  /** Destination for the "Sign in" link (role-specific login route). */
+  loginHref: string;
+}
+
 /**
  * Candidate registration form. Only candidates can self-register; HR accounts
  * are provisioned separately. Validation is handled by Zod; the workflow lives
  * in `useRegister`.
  */
-export function RegisterForm() {
+export function RegisterForm({ loginHref }: RegisterFormProps) {
   const { register, isLoading } = useRegister();
   const form = useForm<RegisterFormValues>({
     resolver: zodResolver(registerSchema),
@@ -78,7 +82,7 @@ export function RegisterForm() {
 
         <p className="text-center text-small text-foreground-muted">
           Already have an account?{' '}
-          <Link to={ROUTES.LOGIN} className="link font-medium">
+          <Link to={loginHref} className="link font-medium">
             Sign in
           </Link>
         </p>

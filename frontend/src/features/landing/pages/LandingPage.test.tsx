@@ -32,11 +32,18 @@ describe('LandingPage', () => {
     ).toBeInTheDocument();
   });
 
-  it('routes the primary CTAs into the app', () => {
+  it('routes the two role entry points to their auth flows', () => {
     renderLanding();
-    const getStartedLinks = screen.getAllByRole('link', { name: /get started/i });
-    expect(getStartedLinks.length).toBeGreaterThan(0);
-    getStartedLinks.forEach((link) => expect(link).toHaveAttribute('href', '/register'));
+
+    const candidateCtas = screen.getAllByRole('link', { name: /looking for a job/i });
+    expect(candidateCtas.length).toBeGreaterThan(0);
+    candidateCtas.forEach((link) =>
+      expect(link).toHaveAttribute('href', '/auth/candidate/register'),
+    );
+
+    const hiringCtas = screen.getAllByRole('link', { name: /i'?m hiring/i });
+    expect(hiringCtas.length).toBeGreaterThan(0);
+    hiringCtas.forEach((link) => expect(link).toHaveAttribute('href', '/auth/hr/login'));
   });
 
   it('renders a footer with the current year copyright', () => {

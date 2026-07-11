@@ -20,10 +20,10 @@ const candidate: User = {
 
 function renderGuest(auth: AuthState) {
   return renderWithProviders(
-    <MemoryRouter initialEntries={[ROUTES.LOGIN]}>
+    <MemoryRouter initialEntries={[ROUTES.AUTH.CANDIDATE_LOGIN]}>
       <Routes>
         <Route element={<GuestRoute />}>
-          <Route path={ROUTES.LOGIN} element={<div>Login screen</div>} />
+          <Route path={ROUTES.AUTH.CANDIDATE_LOGIN} element={<div>Login screen</div>} />
         </Route>
         <Route path={ROUTES.CANDIDATE.DASHBOARD} element={<div>Candidate dashboard</div>} />
       </Routes>

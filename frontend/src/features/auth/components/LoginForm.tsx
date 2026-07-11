@@ -1,12 +1,12 @@
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Link } from 'react-router-dom';
+import type { ReactNode } from 'react';
 import { useForm } from 'react-hook-form';
 
 import { Button } from '@/components/ui/button';
 import { ControlledCheckbox } from '@/components/ui/controlled-checkbox';
 import { ControlledInput } from '@/components/ui/controlled-input';
 import { Form } from '@/components/ui/form';
-import { ROUTES } from '@/constants/routes';
+import type { UserRole } from '@/constants/roles';
 import { useLogin } from '@/features/auth/hooks/useLogin';
 import { type LoginFormValues, loginSchema } from '@/features/auth/schemas/auth.schemas';
 import { applyServerFieldErrors } from '@/utils/form-errors';
@@ -17,13 +17,21 @@ const DEFAULT_VALUES: LoginFormValues = {
   rememberMe: true,
 };
 
+interface LoginFormProps {
+  /** The role of the page this form is on, so the redirect can be explained. */
+  expectedRole?: UserRole;
+  /** Role-specific footer (e.g. a "Create account" or "Contact admin" note). */
+  footer?: ReactNode;
+}
+
 /**
  * Sign-in form. Validation and submission state come from React Hook Form + Zod;
  * the login workflow (API, session, redirect, toasts) lives in `useLogin`, so
- * this component only renders and wires the fields.
+ * this component only renders and wires the fields. The footer is supplied by
+ * the role-specific page.
  */
-export function LoginForm() {
-  const { login, isLoading } = useLogin();
+export function LoginForm({ expectedRole, footer }: LoginFormProps) {
+  const { login, isLoading } = useLogin(expectedRole);
   const form = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),
     defaultValues: DEFAULT_VALUES,
@@ -74,12 +82,9 @@ export function LoginForm() {
           Sign in
         </Button>
 
-        <p className="text-center text-small text-foreground-muted">
-          Don&apos;t have an account?{' '}
-          <Link to={ROUTES.REGISTER} className="link font-medium">
-            Create one
-          </Link>
-        </p>
+        {footer ? (
+          <div className="text-center text-small text-foreground-muted">{footer}</div>
+        ) : null}
       </form>
     </Form>
   );

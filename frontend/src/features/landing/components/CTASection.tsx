@@ -27,23 +27,23 @@ export function CTASection() {
             id="cta-heading"
             className="text-3xl font-semibold tracking-tight text-foreground sm:text-4xl"
           >
-            Start hiring with TalentFlow today
+            Whichever side you&apos;re on, start here
           </h2>
           <p className="mx-auto mt-3 max-w-xl text-foreground-secondary">
-            Bring job posting, applicant tracking, and hiring decisions into one fast workspace. Set
-            up in minutes — no migration headaches.
+            Candidates find and track roles for free. Employers manage the whole pipeline in one
+            fast workspace. Choose your path to get started.
           </p>
 
           <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
             <Button asChild size="lg" className="w-full sm:w-auto">
-              <Link to={ROUTES.REGISTER}>Get started free</Link>
+              <Link to={ROUTES.AUTH.CANDIDATE_REGISTER}>I&apos;m looking for a job</Link>
             </Button>
             <Button asChild size="lg" variant="outline" className="w-full sm:w-auto">
-              <Link to={ROUTES.LOGIN}>Log in</Link>
+              <Link to={ROUTES.AUTH.HR_LOGIN}>I&apos;m hiring</Link>
             </Button>
           </div>
 
-          <p className="mt-4 text-caption">Free to explore · No credit card required</p>
+          <p className="mt-4 text-caption">Free for candidates · Employer accounts by invitation</p>
         </Reveal>
       </div>
     </LandingSection>

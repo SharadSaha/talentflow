@@ -1,4 +1,4 @@
-import { ArrowRight, Sparkles } from 'lucide-react';
+import { ArrowRight, Building2, Sparkles } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { motion, useReducedMotion } from 'framer-motion';
 
@@ -55,13 +55,16 @@ export function HeroSection() {
             className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row"
           >
             <Button asChild size="lg" className="w-full sm:w-auto">
-              <Link to={ROUTES.REGISTER}>
-                Get started free
+              <Link to={ROUTES.AUTH.CANDIDATE_REGISTER}>
+                I&apos;m looking for a job
                 <ArrowRight />
               </Link>
             </Button>
             <Button asChild size="lg" variant="outline" className="w-full sm:w-auto">
-              <a href="#how-it-works">See how it works</a>
+              <Link to={ROUTES.AUTH.HR_LOGIN}>
+                <Building2 />
+                I&apos;m hiring
+              </Link>
             </Button>
           </motion.div>
 
@@ -69,7 +72,7 @@ export function HeroSection() {
             variants={prefersReducedMotion ? undefined : fadeInUp}
             className="mt-4 text-caption"
           >
-            Free to explore · No credit card required
+            Free for candidates · Employer accounts by invitation
           </motion.p>
         </motion.div>
 

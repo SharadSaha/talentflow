@@ -19,3 +19,9 @@ export interface PaginationMeta {
   hasNext: boolean;
   hasPrevious: boolean;
 }
+
+/** A page of results plus its metadata — the normalised shape RTK Query returns. */
+export interface Paginated<TItem> {
+  items: TItem[];
+  meta: PaginationMeta;
+}

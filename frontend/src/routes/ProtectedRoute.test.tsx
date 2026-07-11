@@ -25,7 +25,7 @@ function renderAtProtected(auth: AuthState) {
         <Route element={<ProtectedRoute />}>
           <Route path={ROUTES.CANDIDATE.DASHBOARD} element={<div>Protected content</div>} />
         </Route>
-        <Route path={ROUTES.LOGIN} element={<div>Login screen</div>} />
+        <Route path={ROUTES.AUTH.CANDIDATE_LOGIN} element={<div>Login screen</div>} />
       </Routes>
     </MemoryRouter>,
     { preloadedState: { auth } },

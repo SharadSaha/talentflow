@@ -33,7 +33,7 @@ function mockFetch(body: unknown, status = 200) {
 function renderRegisterForm() {
   return renderWithProviders(
     <MemoryRouter>
-      <RegisterForm />
+      <RegisterForm loginHref="/auth/candidate/login" />
     </MemoryRouter>,
   );
 }

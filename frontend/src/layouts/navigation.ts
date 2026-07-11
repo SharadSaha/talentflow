@@ -1,4 +1,12 @@
-import { Briefcase, FileText, LayoutDashboard, Search, UserCircle, Users } from 'lucide-react';
+import {
+  Briefcase,
+  FileText,
+  LayoutDashboard,
+  Search,
+  Settings,
+  UserCircle,
+  Users,
+} from 'lucide-react';
 import type { ComponentType } from 'react';
 
 import { ROUTES } from '@/constants/routes';
@@ -21,6 +29,7 @@ export const CANDIDATE_NAV_ITEMS: NavItem[] = [
   { label: 'Browse Jobs', to: ROUTES.CANDIDATE.JOBS, icon: Search },
   { label: 'Applied Jobs', to: ROUTES.CANDIDATE.APPLICATIONS, icon: FileText },
   { label: 'Profile', to: ROUTES.CANDIDATE.PROFILE, icon: UserCircle },
+  { label: 'Settings', to: ROUTES.CANDIDATE.SETTINGS, icon: Settings },
 ];
 
 export const HR_NAV_ITEMS: NavItem[] = [

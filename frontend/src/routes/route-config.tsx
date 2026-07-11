@@ -16,10 +16,21 @@ import { RoleRoute } from '@/routes/RoleRoute';
 import { RootLayout } from '@/routes/RootLayout';
 
 // Route-based code splitting keeps heavy chunks (landing + Framer Motion, auth
-// pages) out of the initial bundle. Suspense boundaries live in RootLayout.
+// and portal pages) out of the initial bundle. Suspense boundaries live in
+// RootLayout.
 const LandingPage = lazy(() => import('@/features/landing/pages/LandingPage'));
-const LoginPage = lazy(() => import('@/features/auth/pages/LoginPage'));
-const RegisterPage = lazy(() => import('@/features/auth/pages/RegisterPage'));
+const CandidateLoginPage = lazy(() => import('@/features/auth/pages/CandidateLoginPage'));
+const CandidateRegisterPage = lazy(() => import('@/features/auth/pages/CandidateRegisterPage'));
+const HrLoginPage = lazy(() => import('@/features/auth/pages/HrLoginPage'));
+const HrRegisterPage = lazy(() => import('@/features/auth/pages/HrRegisterPage'));
+
+const CandidateDashboardPage = lazy(
+  () => import('@/features/dashboard/pages/CandidateDashboardPage'),
+);
+const BrowseJobsPage = lazy(() => import('@/features/jobs/pages/BrowseJobsPage'));
+const JobDetailsPage = lazy(() => import('@/features/jobs/pages/JobDetailsPage'));
+const AppliedJobsPage = lazy(() => import('@/features/applications/pages/AppliedJobsPage'));
+const CandidateProfilePage = lazy(() => import('@/features/profile/pages/CandidateProfilePage'));
 
 /**
  * Application route tree. Structure, not features: the public landing page, auth
@@ -40,15 +51,26 @@ export const routes: RouteObject[] = [
       // Public landing (self-contained: its own nav + footer)
       { index: true, element: <LandingPage /> },
 
-      // Guest-only auth
+      // Guest-only, role-specific auth
       {
         element: <GuestRoute />,
         children: [
           {
             element: <AuthLayout />,
             children: [
-              { path: 'login', element: <LoginPage /> },
-              { path: 'register', element: <RegisterPage /> },
+              { path: 'auth/candidate/login', element: <CandidateLoginPage /> },
+              { path: 'auth/candidate/register', element: <CandidateRegisterPage /> },
+              { path: 'auth/hr/login', element: <HrLoginPage /> },
+              { path: 'auth/hr/register', element: <HrRegisterPage /> },
+              // Legacy paths → candidate flow (the primary self-service audience).
+              {
+                path: 'login',
+                element: <Navigate to={ROUTES.AUTH.CANDIDATE_LOGIN} replace />,
+              },
+              {
+                path: 'register',
+                element: <Navigate to={ROUTES.AUTH.CANDIDATE_REGISTER} replace />,
+              },
             ],
           },
         ],
@@ -70,22 +92,37 @@ export const routes: RouteObject[] = [
                   {
                     path: 'dashboard',
                     handle: { title: 'Dashboard' },
-                    element: <PlaceholderPage title="Candidate Dashboard" />,
+                    element: <CandidateDashboardPage />,
                   },
                   {
                     path: 'jobs',
                     handle: { title: 'Browse Jobs' },
-                    element: <PlaceholderPage title="Browse Jobs" />,
+                    element: <BrowseJobsPage />,
+                  },
+                  {
+                    path: 'jobs/:id',
+                    handle: { title: 'Job Details' },
+                    element: <JobDetailsPage />,
                   },
                   {
                     path: 'applications',
                     handle: { title: 'Applied Jobs' },
-                    element: <PlaceholderPage title="Applied Jobs" />,
+                    element: <AppliedJobsPage />,
                   },
                   {
                     path: 'profile',
                     handle: { title: 'Profile' },
-                    element: <PlaceholderPage title="Profile" />,
+                    element: <CandidateProfilePage />,
+                  },
+                  {
+                    path: 'settings',
+                    handle: { title: 'Settings' },
+                    element: (
+                      <PlaceholderPage
+                        title="Settings"
+                        description="Account settings are coming soon."
+                      />
+                    ),
                   },
                 ],
               },

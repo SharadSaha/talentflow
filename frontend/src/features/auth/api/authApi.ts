@@ -24,8 +24,10 @@ export const authApi = baseApi.injectEndpoints({
     }),
 
     getMe: builder.query<User, void>({
+      // `GET /auth/me` wraps the user as `data: { user }` (unlike login/register,
+      // which return `{ user, accessToken }`); unwrap it to the User.
       query: () => API_ENDPOINTS.AUTH.ME,
-      transformResponse: (response: ApiSuccessResponse<User>) => response.data,
+      transformResponse: (response: ApiSuccessResponse<{ user: User }>) => response.data.user,
       providesTags: [CACHE_TAGS.CurrentUser],
     }),
   }),

@@ -1,9 +1,10 @@
 import { Suspense } from 'react';
-import { Outlet } from 'react-router-dom';
+import { Link, Outlet } from 'react-router-dom';
 
 import { Logo } from '@/components/branding/Logo';
 import { FullPageLoader } from '@/components/feedback/FullPageLoader';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
+import { ROUTES } from '@/constants/routes';
 
 /**
  * Layout for unauthenticated auth screens (login, register). Centers a compact
@@ -19,7 +20,13 @@ export function AuthLayout() {
       </div>
 
       <div className="flex w-full max-w-sm flex-col items-center gap-8">
-        <Logo />
+        <Link
+          to={ROUTES.HOME}
+          aria-label="TalentFlow home"
+          className="rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <Logo />
+        </Link>
         <div className="w-full">
           <Suspense fallback={<FullPageLoader />}>
             <Outlet />
