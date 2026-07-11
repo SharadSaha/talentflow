@@ -31,10 +31,11 @@ export default tseslint.config(
   },
   // The design-system library (components/ui) follows the shadcn convention of
   // co-exporting related components and their CVA variant helpers from one
-  // file. Fast Refresh's "only export components" rule doesn't apply to these
-  // stable primitives, so it is disabled for the library only.
+  // file. The route config module co-locates lazy page components with the
+  // route data structure it exports. Neither is a Fast Refresh component module,
+  // so the "only export components" rule is disabled for them.
   {
-    files: ['src/components/ui/**/*.{ts,tsx}'],
+    files: ['src/components/ui/**/*.{ts,tsx}', 'src/routes/route-config.tsx'],
     rules: {
       'react-refresh/only-export-components': 'off',
     },

@@ -3,10 +3,13 @@ import { Home, ShieldAlert } from 'lucide-react';
 
 import { StatusScreen } from '@/components/feedback/StatusScreen';
 import { Button } from '@/components/ui/button';
-import { ROUTES } from '@/constants/routes';
+import { getHomeRouteForRole } from '@/constants/routes';
+import { useAuth } from '@/hooks/useAuth';
 
 /** Shown when an authenticated user lacks the role required for a route. */
 export function UnauthorizedPage() {
+  const { role } = useAuth();
+
   return (
     <StatusScreen
       icon={ShieldAlert}
@@ -15,9 +18,9 @@ export function UnauthorizedPage() {
       description="You don't have permission to view this page. If you believe this is a mistake, contact your administrator."
       actions={
         <Button asChild variant="outline">
-          <Link to={ROUTES.DASHBOARD}>
+          <Link to={getHomeRouteForRole(role)}>
             <Home />
-            Go to dashboard
+            Go to your dashboard
           </Link>
         </Button>
       }

@@ -7,6 +7,7 @@ import { z } from 'zod';
 
 export const PASSWORD_MIN_LENGTH = 8;
 export const PASSWORD_MAX_LENGTH = 72;
+export const NAME_MAX_LENGTH = 100;
 
 /** At least one lowercase, one uppercase, one digit, and one special character. */
 export const PASSWORD_PATTERN = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).+$/;

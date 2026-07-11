@@ -1,5 +1,6 @@
 import { createSlice, type PayloadAction } from '@reduxjs/toolkit';
 
+import { USER_ROLE, type UserRole } from '@/constants/roles';
 import type { RootState } from '@/store/types';
 import type { User } from '@/types/user';
 
@@ -30,6 +31,12 @@ interface Credentials {
   token: string;
 }
 
+function resetToSignedOut(state: AuthState): void {
+  state.user = null;
+  state.token = null;
+  state.status = 'unauthenticated';
+}
+
 const authSlice = createSlice({
   name: 'auth',
   initialState,
@@ -42,19 +49,29 @@ const authSlice = createSlice({
     setAuthStatus(state, action: PayloadAction<AuthStatus>) {
       state.status = action.payload;
     },
+    /** Deliberate sign-out initiated by the user. */
     clearCredentials(state) {
-      state.user = null;
-      state.token = null;
-      state.status = 'unauthenticated';
+      resetToSignedOut(state);
+    },
+    /**
+     * Session invalidated by the server (401). Behaves like a sign-out but is a
+     * distinct action so middleware can surface a "session expired" message.
+     */
+    sessionExpired(state) {
+      resetToSignedOut(state);
     },
   },
 });
 
-export const { setCredentials, setAuthStatus, clearCredentials } = authSlice.actions;
+export const { setCredentials, setAuthStatus, clearCredentials, sessionExpired } =
+  authSlice.actions;
 export const authReducer = authSlice.reducer;
 
 export const selectAuthUser = (state: RootState): User | null => state.auth.user;
 export const selectAuthStatus = (state: RootState): AuthStatus => state.auth.status;
 export const selectIsAuthenticated = (state: RootState): boolean =>
   state.auth.status === 'authenticated';
-export const selectUserRole = (state: RootState) => state.auth.user?.role ?? null;
+export const selectUserRole = (state: RootState): UserRole | null => state.auth.user?.role ?? null;
+export const selectIsHr = (state: RootState): boolean => state.auth.user?.role === USER_ROLE.HR;
+export const selectIsCandidate = (state: RootState): boolean =>
+  state.auth.user?.role === USER_ROLE.CANDIDATE;

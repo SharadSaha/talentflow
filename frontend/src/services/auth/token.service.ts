@@ -1,25 +1,38 @@
 import { STORAGE_KEYS } from '@/constants/storage-keys';
 import { localStorageService } from '@/services/storage/local-storage.service';
+import { sessionStorageService } from '@/services/storage/session-storage.service';
 
 /**
- * Access-token persistence.
+ * Access-token persistence with a "remember me" strategy.
  *
  * The backend issues a bearer access token in the login/register response body
- * (no HttpOnly refresh-cookie flow exists), so the SPA must persist it to keep
- * the user signed in across reloads. We isolate that decision here: the base
- * query and auth bootstrap read the token exclusively through this service, so
- * the storage strategy can change in one place if the backend adopts cookies.
+ * (there is no HttpOnly refresh-cookie flow), so the SPA persists it to keep the
+ * user signed in across reloads. "Remember me" chooses the durability:
+ * `localStorage` survives browser restarts; `sessionStorage` is cleared when the
+ * tab closes. Reads check both. All token access goes through this service so
+ * the strategy stays encapsulated.
  */
 export const tokenService = {
   get(): string | null {
-    return localStorageService.get(STORAGE_KEYS.ACCESS_TOKEN);
+    return (
+      localStorageService.get(STORAGE_KEYS.ACCESS_TOKEN) ??
+      sessionStorageService.get(STORAGE_KEYS.ACCESS_TOKEN)
+    );
   },
 
-  set(token: string): void {
-    localStorageService.set(STORAGE_KEYS.ACCESS_TOKEN, token);
+  set(token: string, remember = true): void {
+    // Clear the other store first so a single token location is authoritative.
+    if (remember) {
+      sessionStorageService.remove(STORAGE_KEYS.ACCESS_TOKEN);
+      localStorageService.set(STORAGE_KEYS.ACCESS_TOKEN, token);
+    } else {
+      localStorageService.remove(STORAGE_KEYS.ACCESS_TOKEN);
+      sessionStorageService.set(STORAGE_KEYS.ACCESS_TOKEN, token);
+    }
   },
 
   clear(): void {
     localStorageService.remove(STORAGE_KEYS.ACCESS_TOKEN);
+    sessionStorageService.remove(STORAGE_KEYS.ACCESS_TOKEN);
   },
 };

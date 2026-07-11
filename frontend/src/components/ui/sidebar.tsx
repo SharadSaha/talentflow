@@ -1,4 +1,4 @@
-import { Slot } from '@radix-ui/react-slot';
+import { Slot, Slottable } from '@radix-ui/react-slot';
 import type { ComponentType } from 'react';
 import { forwardRef } from 'react';
 
@@ -83,10 +83,26 @@ interface SidebarNavItemProps extends React.ComponentPropsWithoutRef<'a'> {
 /** A single sidebar navigation entry. */
 export const SidebarNavItem = forwardRef<HTMLAnchorElement, SidebarNavItemProps>(
   function SidebarNavItem(
-    { className, icon: Icon, label, active = false, collapsed = false, asChild = false, ...props },
+    {
+      className,
+      icon: Icon,
+      label,
+      active = false,
+      collapsed = false,
+      asChild = false,
+      children,
+      ...props
+    },
     ref,
   ) {
     const Comp = asChild ? Slot : 'a';
+    const content = (
+      <>
+        <Icon className="size-4 shrink-0" />
+        <span className={cn('truncate', collapsed && 'sr-only')}>{label}</span>
+      </>
+    );
+
     return (
       <Comp
         ref={ref}
@@ -102,8 +118,20 @@ export const SidebarNavItem = forwardRef<HTMLAnchorElement, SidebarNavItemProps>
         )}
         {...props}
       >
-        <Icon className="size-4 shrink-0" />
-        <span className={cn('truncate', collapsed && 'sr-only')}>{label}</span>
+        {/*
+         * When `asChild`, `children` is the consumer's element (e.g. a router
+         * <Link>); `Slottable` marks it as the slot target so Radix merges our
+         * props onto it and renders the icon + label inside it. Without
+         * `asChild`, we render a plain anchor with the same content.
+         */}
+        {asChild ? (
+          <>
+            {content}
+            <Slottable>{children}</Slottable>
+          </>
+        ) : (
+          content
+        )}
       </Comp>
     );
   },

@@ -6,7 +6,7 @@ import {
 } from '@reduxjs/toolkit/query';
 
 import { env } from '@/config/env';
-import { clearCredentials } from '@/reducers/authSlice';
+import { sessionExpired } from '@/reducers/authSlice';
 import { HTTP_STATUS_UNAUTHORIZED } from '@/services/api/http-status';
 import { tokenService } from '@/services/auth/token.service';
 
@@ -41,7 +41,7 @@ export const baseQueryWithReauth: BaseQueryFn<
 
   if (result.error?.status === HTTP_STATUS_UNAUTHORIZED) {
     tokenService.clear();
-    api.dispatch(clearCredentials());
+    api.dispatch(sessionExpired());
   }
 
   return result;

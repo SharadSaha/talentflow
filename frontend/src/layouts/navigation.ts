@@ -1,4 +1,4 @@
-import { FileText, LayoutDashboard, Briefcase, UserCircle } from 'lucide-react';
+import { Briefcase, FileText, LayoutDashboard, Search, UserCircle, Users } from 'lucide-react';
 import type { ComponentType } from 'react';
 
 import { ROUTES } from '@/constants/routes';
@@ -9,30 +9,30 @@ export interface NavItem {
   label: string;
   to: string;
   icon: ComponentType<{ className?: string }>;
-  /** Roles allowed to see this item; omit for all authenticated users. */
-  roles?: UserRole[];
 }
 
 /**
- * Primary navigation for the authenticated app shell. Role-scoped items are
- * filtered per user by `getNavItemsForRole`. Feature modules extend this list
- * as they are added.
+ * Role-specific primary navigation. Each authenticated layout renders the menu
+ * for its role, so the sidebar adapts automatically after login. Feature
+ * modules extend these lists as they are added.
  */
-export const PRIMARY_NAV_ITEMS: NavItem[] = [
-  { label: 'Dashboard', to: ROUTES.DASHBOARD, icon: LayoutDashboard },
-  { label: 'Jobs', to: ROUTES.JOBS, icon: Briefcase },
-  {
-    label: 'Applications',
-    to: ROUTES.APPLICATIONS,
-    icon: FileText,
-    roles: [USER_ROLE.CANDIDATE],
-  },
-  { label: 'Profile', to: ROUTES.PROFILE, icon: UserCircle, roles: [USER_ROLE.CANDIDATE] },
+export const CANDIDATE_NAV_ITEMS: NavItem[] = [
+  { label: 'Dashboard', to: ROUTES.CANDIDATE.DASHBOARD, icon: LayoutDashboard },
+  { label: 'Browse Jobs', to: ROUTES.CANDIDATE.JOBS, icon: Search },
+  { label: 'Applied Jobs', to: ROUTES.CANDIDATE.APPLICATIONS, icon: FileText },
+  { label: 'Profile', to: ROUTES.CANDIDATE.PROFILE, icon: UserCircle },
 ];
 
-/** Returns the nav items visible to the given role (or all common items). */
+export const HR_NAV_ITEMS: NavItem[] = [
+  { label: 'Dashboard', to: ROUTES.HR.DASHBOARD, icon: LayoutDashboard },
+  { label: 'Jobs', to: ROUTES.HR.JOBS, icon: Briefcase },
+  { label: 'Applicants', to: ROUTES.HR.APPLICANTS, icon: Users },
+  { label: 'Profile', to: ROUTES.HR.PROFILE, icon: UserCircle },
+];
+
+/** Returns the navigation menu for the given role. */
 export function getNavItemsForRole(role: UserRole | null): NavItem[] {
-  return PRIMARY_NAV_ITEMS.filter(
-    (item) => !item.roles || (role !== null && item.roles.includes(role)),
-  );
+  if (role === USER_ROLE.HR) return HR_NAV_ITEMS;
+  if (role === USER_ROLE.CANDIDATE) return CANDIDATE_NAV_ITEMS;
+  return [];
 }

@@ -20,10 +20,10 @@ const authenticatedUser: User = {
 
 function renderAtProtected(auth: AuthState) {
   return renderWithProviders(
-    <MemoryRouter initialEntries={[ROUTES.DASHBOARD]}>
+    <MemoryRouter initialEntries={[ROUTES.CANDIDATE.DASHBOARD]}>
       <Routes>
         <Route element={<ProtectedRoute />}>
-          <Route path={ROUTES.DASHBOARD} element={<div>Protected content</div>} />
+          <Route path={ROUTES.CANDIDATE.DASHBOARD} element={<div>Protected content</div>} />
         </Route>
         <Route path={ROUTES.LOGIN} element={<div>Login screen</div>} />
       </Routes>

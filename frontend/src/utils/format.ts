@@ -44,3 +44,13 @@ export function truncate(text: string, maxLength: number): string {
   if (text.length <= maxLength) return text;
   return `${text.slice(0, maxLength).trimEnd()}…`;
 }
+
+/**
+ * Splits a full name into first and last parts: the first token is the first
+ * name and the remainder is the last name (which the backend requires).
+ */
+export function splitFullName(fullName: string): { firstName: string; lastName: string } {
+  const parts = fullName.trim().split(/\s+/).filter(Boolean);
+  const [firstName = '', ...rest] = parts;
+  return { firstName, lastName: rest.join(' ') };
+}

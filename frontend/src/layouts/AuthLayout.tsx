@@ -1,12 +1,15 @@
+import { Suspense } from 'react';
 import { Outlet } from 'react-router-dom';
 
 import { Logo } from '@/components/branding/Logo';
+import { FullPageLoader } from '@/components/feedback/FullPageLoader';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
 
 /**
  * Layout for unauthenticated auth screens (login, register). Centers a compact
- * content column on a plain background, with the brand above and a theme toggle
- * in the corner. Feature auth pages render into the `Outlet`.
+ * content column with the brand above and a theme toggle in the corner. Auth
+ * pages are lazily loaded, so a suspense boundary preserves the layout while the
+ * chunk loads.
  */
 export function AuthLayout() {
   return (
@@ -18,7 +21,9 @@ export function AuthLayout() {
       <div className="flex w-full max-w-sm flex-col items-center gap-8">
         <Logo />
         <div className="w-full">
-          <Outlet />
+          <Suspense fallback={<FullPageLoader />}>
+            <Outlet />
+          </Suspense>
         </div>
       </div>
     </div>
