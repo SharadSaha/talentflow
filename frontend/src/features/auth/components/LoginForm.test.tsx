@@ -14,6 +14,7 @@ const authResult = {
     firstName: 'Ada',
     lastName: 'Lovelace',
     role: USER_ROLE.CANDIDATE,
+    organizationName: null,
     createdAt: '2026-01-01T00:00:00.000Z',
   },
   accessToken: 'token-abc',

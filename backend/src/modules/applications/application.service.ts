@@ -20,6 +20,7 @@ import { canHrTransition, isWithdrawable } from './application.status';
 const CANDIDATE_PROFILE_NOT_FOUND = 'Candidate profile not found.';
 const APPLICATION_NOT_FOUND = 'Application not found.';
 const JOB_NOT_FOUND = 'Job not found.';
+const NO_COMPANY_MESSAGE = 'Your HR account is not linked to a company.';
 
 /**
  * Business logic for the Applications module: applying to jobs, viewing applied
@@ -89,18 +90,20 @@ export class ApplicationService {
     };
   }
 
-  /** Lists the applicants of a job the authenticated HR user owns. */
+  /** Lists the applicants of a job belonging to the HR user's organization. */
   async getJobApplicants(
     userId: string,
     jobId: string,
     query: JobApplicantsQueryInput,
   ): Promise<Paginated<ApplicantDto>> {
+    const hrCompanyId = await this.getHrCompanyId(userId);
+
     const job = await this.applications.findJobApplyState(jobId);
     if (!job || job.deletedAt) {
       throw new NotFoundError(JOB_NOT_FOUND);
     }
-    if (job.postedById !== userId) {
-      throw new AuthorizationError('You can only view applicants for jobs you created.');
+    if (job.companyId !== hrCompanyId) {
+      throw new AuthorizationError('You can only view applicants for your organization.');
     }
 
     const { items, total } = await this.applications.findApplicants({
@@ -128,16 +131,18 @@ export class ApplicationService {
   }
 
   /**
-   * Lists applicants across every non-deleted job the authenticated HR user
-   * owns (the "All Jobs" applicant board). Authorization is enforced by scoping
-   * to the caller's own jobs via `postedById`.
+   * Lists applicants across every non-deleted job in the authenticated HR
+   * user's organization (the "All Jobs" applicant board). Authorization is
+   * enforced by scoping to the caller's company, never client input.
    */
   async getHrApplicants(
     userId: string,
     query: HrApplicantsQueryInput,
   ): Promise<Paginated<ApplicantDto>> {
+    const hrCompanyId = await this.getHrCompanyId(userId);
+
     const { items, total } = await this.applications.findHrApplicants({
-      hrUserId: userId,
+      hrCompanyId,
       filters: {
         status: query.status,
         minExperienceMonths: query.minExperienceMonths,
@@ -166,12 +171,14 @@ export class ApplicationService {
     applicationId: string,
     input: UpdateStatusInput,
   ): Promise<ApplicationDto> {
+    const hrCompanyId = await this.getHrCompanyId(userId);
+
     const application = await this.applications.findOwnership(applicationId);
     if (!application || application.job.deletedAt) {
       throw new NotFoundError(APPLICATION_NOT_FOUND);
     }
-    if (application.job.postedById !== userId) {
-      throw new AuthorizationError('You can only update applicants for jobs you created.');
+    if (application.job.companyId !== hrCompanyId) {
+      throw new AuthorizationError('You can only update applicants for your organization.');
     }
     if (!canHrTransition(application.status, input.status)) {
       throw new BadRequestError(
@@ -217,6 +224,14 @@ export class ApplicationService {
       throw new NotFoundError(CANDIDATE_PROFILE_NOT_FOUND);
     }
     return candidateProfileId;
+  }
+
+  private async getHrCompanyId(userId: string): Promise<string> {
+    const hrCompanyId = await this.applications.findHrCompanyIdByUserId(userId);
+    if (!hrCompanyId) {
+      throw new BadRequestError(NO_COMPANY_MESSAGE);
+    }
+    return hrCompanyId;
   }
 }
 

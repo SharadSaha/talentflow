@@ -1,4 +1,3 @@
-import type { User } from '@/generated/prisma/client';
 import {
   ApplicationStatus,
   EducationLevel,
@@ -14,6 +13,7 @@ import type {
   ApplicantWithProfile,
   ApplicationWithJob,
 } from '@/modules/applications/application.repository';
+import type { AuthUserRecord } from '@/modules/auth/auth.repository';
 import type { CandidateProfileWithRelations } from '@/modules/candidate-profile/profile.repository';
 import type { JobWithRelations } from '@/modules/jobs/job.repository';
 
@@ -23,11 +23,16 @@ export const HR_USER_ID = '019f0000-0000-7000-8000-0000000000f0';
 export const CANDIDATE_USER_ID = '019f0000-0000-7000-8000-000000000001';
 export const CANDIDATE_PROFILE_ID = '019f0000-0000-7000-8000-0000000000a1';
 export const COMPANY_ID = '019f0000-0000-7000-8000-0000000000e1';
+export const OTHER_COMPANY_ID = '019f0000-0000-7000-8000-0000000000e2';
 export const JOB_ID = '019f0000-0000-7000-8000-000000000010';
 export const APPLICATION_ID = '019f0000-0000-7000-8000-000000000020';
 
-/** Builds a deterministic `User` entity for tests. */
-export function buildUser(overrides: Partial<User> = {}): User {
+/**
+ * Builds a deterministic user (with the relations loaded for the auth DTO) for
+ * tests. Defaults to a candidate with no organization; pass an `hrProfile`
+ * override to simulate an HR user bound to a company.
+ */
+export function buildUser(overrides: Partial<AuthUserRecord> = {}): AuthUserRecord {
   return {
     id: '019f0000-0000-7000-8000-000000000001',
     email: 'candidate@example.com',
@@ -38,6 +43,7 @@ export function buildUser(overrides: Partial<User> = {}): User {
     isActive: true,
     createdAt: FIXED_DATE,
     updatedAt: FIXED_DATE,
+    hrProfile: null,
     ...overrides,
   };
 }

@@ -2,11 +2,14 @@ import { z } from 'zod';
 
 import {
   NAME_MAX_LENGTH,
+  ORGANIZATION_NAME_MAX_LENGTH,
+  ORGANIZATION_NAME_MIN_LENGTH,
   PASSWORD_MAX_LENGTH,
   PASSWORD_MIN_LENGTH,
   PASSWORD_PATTERN,
   PASSWORD_REQUIREMENTS_MESSAGE,
 } from '@/constants/validation';
+import { UserRole } from '@/generated/prisma/enums';
 
 const emailSchema = z
   .string({ error: 'Email is required.' })
@@ -33,8 +36,39 @@ export const registerSchema = z.object({
         .regex(PASSWORD_PATTERN, PASSWORD_REQUIREMENTS_MESSAGE),
       firstName: nameSchema('First name'),
       lastName: nameSchema('Last name'),
+      role: z.enum([UserRole.HR, UserRole.CANDIDATE]).default(UserRole.CANDIDATE),
+      // Only meaningful for HR registration; ignored for candidates.
+      organizationName: z.string().trim().optional(),
     })
-    .strict(),
+    .strict()
+    .superRefine((data, ctx) => {
+      if (data.role !== UserRole.HR) {
+        return;
+      }
+
+      const name = data.organizationName;
+      if (!name || name.length === 0) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['organizationName'],
+          message: 'Organization name is required.',
+        });
+        return;
+      }
+      if (name.length < ORGANIZATION_NAME_MIN_LENGTH) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['organizationName'],
+          message: `Organization name must be at least ${ORGANIZATION_NAME_MIN_LENGTH} characters.`,
+        });
+      } else if (name.length > ORGANIZATION_NAME_MAX_LENGTH) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['organizationName'],
+          message: `Organization name must be at most ${ORGANIZATION_NAME_MAX_LENGTH} characters.`,
+        });
+      }
+    }),
 });
 
 /** Validation schema for `POST /auth/login`. */

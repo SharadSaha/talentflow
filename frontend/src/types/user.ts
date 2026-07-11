@@ -10,6 +10,8 @@ export interface User {
   firstName: string;
   lastName: string;
   role: UserRole;
+  /** Employer/organization name. Set for HR users; `null` for candidates. */
+  organizationName: string | null;
   createdAt: string;
 }
 

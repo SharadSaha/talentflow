@@ -3,8 +3,8 @@ import { Link } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 
 import { Button } from '@/components/ui/button';
-import { ControlledInput } from '@/components/ui/controlled-input';
 import { Form } from '@/components/ui/form';
+import { RegisterCredentialFields } from '@/features/auth/components/RegisterCredentialFields';
 import { useRegister } from '@/features/auth/hooks/useRegister';
 import { type RegisterFormValues, registerSchema } from '@/features/auth/schemas/auth.schemas';
 import { applyServerFieldErrors } from '@/utils/form-errors';
@@ -43,38 +43,7 @@ export function RegisterForm({ loginHref }: RegisterFormProps) {
   return (
     <Form {...form}>
       <form onSubmit={onSubmit} noValidate className="space-y-4">
-        <ControlledInput<RegisterFormValues>
-          name="fullName"
-          label="Full name"
-          placeholder="Ada Lovelace"
-          autoComplete="name"
-          autoFocus
-        />
-
-        <ControlledInput<RegisterFormValues>
-          name="email"
-          label="Email"
-          type="email"
-          placeholder="you@company.com"
-          autoComplete="email"
-        />
-
-        <ControlledInput<RegisterFormValues>
-          name="password"
-          label="Password"
-          type="password"
-          placeholder="••••••••"
-          autoComplete="new-password"
-          description="At least 8 characters, with upper- and lowercase letters, a number, and a symbol."
-        />
-
-        <ControlledInput<RegisterFormValues>
-          name="confirmPassword"
-          label="Confirm password"
-          type="password"
-          placeholder="••••••••"
-          autoComplete="new-password"
-        />
+        <RegisterCredentialFields />
 
         <Button type="submit" className="w-full" isLoading={isLoading}>
           Create account

@@ -19,6 +19,7 @@ const candidate = {
   firstName: 'Ada',
   lastName: 'Lovelace',
   role: USER_ROLE.CANDIDATE,
+  organizationName: null,
   createdAt: '2026-01-01T00:00:00.000Z',
 };
 
@@ -28,6 +29,7 @@ const hr = {
   firstName: 'Grace',
   lastName: 'Hopper',
   role: USER_ROLE.HR,
+  organizationName: 'Hopper Labs',
   createdAt: '2026-01-01T00:00:00.000Z',
 };
 

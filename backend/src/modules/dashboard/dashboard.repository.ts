@@ -193,9 +193,32 @@ class PrismaDashboardRepository implements DashboardRepository {
   }
 
   async getHrDashboard(userId: string, recentLimit: number): Promise<HrDashboardData> {
-    const ownedJobsWhere: Prisma.JobWhereInput = { postedById: userId, deletedAt: null };
+    // Analytics are scoped to the HR user's whole organization, derived
+    // server-side from their HrProfile — never from personal `postedById`.
+    const hrProfile = await prisma.hrProfile.findUnique({
+      where: { userId },
+      select: { companyId: true },
+    });
+
+    if (!hrProfile) {
+      return {
+        totalJobs: 0,
+        activeJobs: 0,
+        closedJobs: 0,
+        totalApplicants: 0,
+        statusCounts: [],
+        recentApplications: [],
+        recentJobs: [],
+        topPerformingJob: null,
+      };
+    }
+
+    const ownedJobsWhere: Prisma.JobWhereInput = {
+      companyId: hrProfile.companyId,
+      deletedAt: null,
+    };
     const ownedApplicationsWhere: Prisma.ApplicationWhereInput = {
-      job: { postedById: userId, deletedAt: null },
+      job: { companyId: hrProfile.companyId, deletedAt: null },
     };
 
     const [

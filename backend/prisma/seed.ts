@@ -31,6 +31,16 @@
  *   * Candidate — candidate@test.com / Candidate@1234
  *   * Named secondary HR / candidate accounts — <name>@test.com / Password@123
  *
+ * The README-documented demo accounts (created explicitly, hashed with their own
+ * passwords) are guaranteed to exist and log in:
+ *   * Candidate — candidate1@example.com / Candidate@123
+ *   * Candidate — candidate2@example.com / Candidate@123
+ *   * HR        — hr1@skypoint.com      / Hr@123456   (org: SkyPoint Technologies)
+ *   * HR        — hr3@skypoint.com      / Hr@123456   (org: SkyPoint Technologies)
+ *   * HR        — hr2@vertexlabs.com    / Hr@123456   (org: Vertex Labs)
+ *   hr1 & hr3 share the SkyPoint org (so hr1 sees hr3's jobs); hr2's Vertex Labs
+ *   jobs stay invisible to hr1 — org-scoped authorization is demonstrable.
+ *
  * Run with: `npm run prisma:seed`  (or `npx prisma db seed`)
  */
 import 'dotenv/config';
@@ -98,12 +108,50 @@ const PRIMARY_CANDIDATE_EMAIL = 'candidate@test.com';
 const PRIMARY_CANDIDATE_PASSWORD = 'Candidate@1234';
 const DEMO_USER_PASSWORD = 'Password@123';
 
+// README-documented demo accounts (must exist and log in with these exact
+// credentials). Passwords are bcrypt-hashed with their real plaintext below.
+const DEMO_CANDIDATE_PASSWORD = 'Candidate@123';
+const DEMO_HR_PASSWORD = 'Hr@123456';
+const DEMO_CANDIDATE_1_EMAIL = 'candidate1@example.com';
+const DEMO_CANDIDATE_2_EMAIL = 'candidate2@example.com';
+const DEMO_HR_1_EMAIL = 'hr1@skypoint.com';
+const DEMO_HR_2_EMAIL = 'hr2@vertexlabs.com';
+const DEMO_HR_3_EMAIL = 'hr3@skypoint.com';
+
+// Slugs of the organizations the primary demo recruiters belong to. `hr1` and
+// `hr3` share `skypoint-technologies` (so hr1 can see hr3's org-scoped jobs);
+// `hr2` sits in a different org (`vertex-labs`) that hr1 must NOT see.
+const SKYPOINT_COMPANY_SLUG = 'skypoint-technologies';
+const VERTEX_COMPANY_SLUG = 'vertex-labs';
+
 // Company the primary HR recruits for (must exist in the curated company list).
 const PRIMARY_HR_COMPANY_SLUG = 'acme-cloud';
 /** How many jobs are pinned to the primary HR so the demo HR board is full. */
 const PRIMARY_HR_JOB_COUNT = 24;
+/** Published jobs pinned to each README demo recruiter so their boards are full. */
+const DEMO_HR_1_JOB_COUNT = 18;
+const DEMO_HR_2_JOB_COUNT = 16;
+const DEMO_HR_3_JOB_COUNT = 8;
 /** How many varied applications the primary candidate receives for the demo. */
 const PRIMARY_CANDIDATE_DEMO_APPLICATIONS = 6;
+/** Varied applications each README demo candidate lodges on the demo HR boards. */
+const DEMO_CANDIDATE_DEMO_APPLICATIONS = 5;
+
+// Named org slugs that must carry at least two HR recruiters so org-scoped
+// authorization (teammates sharing a company's jobs) is demonstrable everywhere.
+const NAMED_ORG_SLUGS: readonly string[] = [
+  'skypoint-technologies',
+  'acme-solutions',
+  'vertex-labs',
+  'nova-systems',
+  'bluepeak-technologies',
+  'quantum-digital',
+  'cloudforge',
+  'nextgen-analytics',
+  'talentbridge',
+  'elevate-tech',
+];
+const MIN_HR_PER_NAMED_ORG = 2;
 
 // Domains for generated (non-demo) accounts — kept distinct from the demo domain.
 const GENERATED_HR_EMAIL_DOMAIN = 'talentflow.dev';
@@ -579,8 +627,81 @@ interface CompanyDef {
 }
 
 // Curated anchors. `acme-cloud`, `fintrek`, `healthsync` and `dataforge` MUST
-// remain because the preserved demo HR accounts recruit for them.
+// remain because the preserved demo HR accounts recruit for them. The ten named
+// organizations below are explicit, well-known "Organizations" documented in the
+// README so org-scoped authorization is demonstrable (`skypoint-technologies`
+// and `vertex-labs` back the `hr1`/`hr2`/`hr3` demo recruiters).
 const CURATED_COMPANIES: readonly CompanyDef[] = [
+  {
+    name: 'SkyPoint Technologies',
+    slug: 'skypoint-technologies',
+    industry: 'Cloud Infrastructure',
+    size: CompanySize.LARGE,
+    location: 'Bengaluru, Karnataka, India',
+  },
+  {
+    name: 'Acme Solutions',
+    slug: 'acme-solutions',
+    industry: 'Enterprise Software',
+    size: CompanySize.ENTERPRISE,
+    location: 'Pune, Maharashtra, India',
+  },
+  {
+    name: 'Vertex Labs',
+    slug: 'vertex-labs',
+    industry: 'Artificial Intelligence',
+    size: CompanySize.MEDIUM,
+    location: 'Hyderabad, Telangana, India',
+  },
+  {
+    name: 'Nova Systems',
+    slug: 'nova-systems',
+    industry: 'Enterprise Software',
+    size: CompanySize.LARGE,
+    location: 'Chennai, Tamil Nadu, India',
+  },
+  {
+    name: 'BluePeak Technologies',
+    slug: 'bluepeak-technologies',
+    industry: 'Cybersecurity',
+    size: CompanySize.MEDIUM,
+    location: 'Bengaluru, Karnataka, India',
+  },
+  {
+    name: 'Quantum Digital',
+    slug: 'quantum-digital',
+    industry: 'Data & Analytics',
+    size: CompanySize.MEDIUM,
+    location: 'Gurugram, Haryana, India',
+  },
+  {
+    name: 'CloudForge',
+    slug: 'cloudforge',
+    industry: 'Cloud Infrastructure',
+    size: CompanySize.STARTUP,
+    location: 'Remote',
+  },
+  {
+    name: 'NextGen Analytics',
+    slug: 'nextgen-analytics',
+    industry: 'Data & Analytics',
+    size: CompanySize.MEDIUM,
+    location: 'Mumbai, Maharashtra, India',
+  },
+  {
+    name: 'TalentBridge',
+    slug: 'talentbridge',
+    industry: 'HR Technology',
+    size: CompanySize.SMALL,
+    location: 'Noida, Uttar Pradesh, India',
+  },
+  {
+    name: 'Elevate Tech',
+    slug: 'elevate-tech',
+    industry: 'EdTech',
+    size: CompanySize.MEDIUM,
+    location: 'Bengaluru, Karnataka, India',
+  },
   {
     name: 'Acme Cloud',
     slug: 'acme-cloud',
@@ -1314,6 +1435,35 @@ const NAMED_CANDIDATES: readonly NamedCandidate[] = [
   },
 ];
 
+// README-documented demo candidates (must log in with `Candidate@123`). They
+// receive a rich, cross-organization application board in `seedApplications`.
+const DEMO_CANDIDATES: readonly NamedCandidate[] = [
+  {
+    email: DEMO_CANDIDATE_1_EMAIL,
+    firstName: 'Aarav',
+    lastName: 'Sharma',
+    headline: 'Full-Stack Engineer · React + Node.js',
+    currentLocation: 'Bengaluru, Karnataka, India',
+    currentCompany: 'Freelance',
+    currentTitle: 'Full-Stack Engineer',
+    totalExperienceMonths: 42,
+    highestEducation: EducationLevel.BACHELORS,
+    skillSlugs: ['react', 'typescript', 'nodejs', 'postgresql', 'nextjs'],
+  },
+  {
+    email: DEMO_CANDIDATE_2_EMAIL,
+    firstName: 'Diya',
+    lastName: 'Patel',
+    headline: 'Backend Engineer · Java & Spring Boot',
+    currentLocation: 'Hyderabad, Telangana, India',
+    currentCompany: 'Freelance',
+    currentTitle: 'Backend Engineer',
+    totalExperienceMonths: 30,
+    highestEducation: EducationLevel.BACHELORS,
+    skillSlugs: ['java', 'spring-boot', 'postgresql', 'redis', 'rest-api'],
+  },
+];
+
 interface NamedHr {
   readonly email: string;
   readonly firstName: string;
@@ -1435,8 +1585,16 @@ async function seedSkills(): Promise<Map<string, string>> {
 // HR users (+ profiles)
 // ---------------------------------------------------------------------------
 
+/** User ids of the README-documented demo recruiters, for pinning demo jobs. */
+interface DemoHrUserIds {
+  readonly hr1: string;
+  readonly hr2: string;
+  readonly hr3: string;
+}
+
 interface HrSeedResult {
   readonly primaryHrUserId: string;
+  readonly demoHrUserIds: DemoHrUserIds;
   readonly hrUserIdsByCompanySlug: Map<string, string[]>;
 }
 
@@ -1446,6 +1604,7 @@ async function seedHrUsers(
 ): Promise<HrSeedResult> {
   const primaryHash = await hashPassword(PRIMARY_HR_PASSWORD);
   const demoHash = await hashPassword(DEMO_USER_PASSWORD);
+  const demoHrHash = await hashPassword(DEMO_HR_PASSWORD);
   const sharedHash = demoHash; // reuse one bcrypt hash for every generated HR account
 
   const nextEmail = createUniqueEmailFactory(GENERATED_HR_EMAIL_DOMAIN);
@@ -1528,6 +1687,50 @@ async function seedHrUsers(
     });
   }
 
+  // README-documented demo recruiters. hr1 + hr3 share SkyPoint Technologies so
+  // org-scoped visibility (hr1 sees hr3's jobs) is demonstrable; hr2 is isolated
+  // in Vertex Labs (hr1 must NOT see hr2's jobs).
+  const demoHr1UserId = addHr({
+    email: DEMO_HR_1_EMAIL,
+    passwordHash: demoHrHash,
+    firstName: 'Sanjay',
+    lastName: 'Menon',
+    companySlug: SKYPOINT_COMPANY_SLUG,
+    designation: 'Talent Acquisition Lead',
+    createdAt: daysBeforeReference(300),
+  });
+  const demoHr3UserId = addHr({
+    email: DEMO_HR_3_EMAIL,
+    passwordHash: demoHrHash,
+    firstName: 'Divya',
+    lastName: 'Kapoor',
+    companySlug: SKYPOINT_COMPANY_SLUG,
+    designation: 'Technical Recruiter',
+    createdAt: daysBeforeReference(280),
+  });
+  const demoHr2UserId = addHr({
+    email: DEMO_HR_2_EMAIL,
+    passwordHash: demoHrHash,
+    firstName: 'Karan',
+    lastName: 'Malhotra',
+    companySlug: VERTEX_COMPANY_SLUG,
+    designation: 'Talent Acquisition Lead',
+    createdAt: daysBeforeReference(300),
+  });
+  const demoHrUserIds: DemoHrUserIds = {
+    hr1: demoHr1UserId,
+    hr2: demoHr2UserId,
+    hr3: demoHr3UserId,
+  };
+
+  // Guarantee every named organization has a full recruiting team so org-scoped
+  // authorization (teammates sharing a company's jobs) is demonstrable.
+  for (const slug of NAMED_ORG_SLUGS) {
+    while ((hrUserIdsByCompanySlug.get(slug)?.length ?? 0) < MIN_HR_PER_NAMED_ORG) {
+      addGeneratedHr(slug);
+    }
+  }
+
   // Guarantee every company has at least one recruiter, then fill to target.
   for (const company of companyDefs) {
     if (!hrUserIdsByCompanySlug.has(company.slug)) {
@@ -1542,7 +1745,7 @@ async function seedHrUsers(
   await insertInBatches(userRows, (batch) => prisma.user.createMany({ data: batch }));
   await insertInBatches(profileRows, (batch) => prisma.hrProfile.createMany({ data: batch }));
 
-  return { primaryHrUserId, hrUserIdsByCompanySlug };
+  return { primaryHrUserId, demoHrUserIds, hrUserIdsByCompanySlug };
 }
 
 // ---------------------------------------------------------------------------
@@ -1658,6 +1861,7 @@ async function seedCandidates(
 ): Promise<CandidateRecord[]> {
   const primaryHash = await hashPassword(PRIMARY_CANDIDATE_PASSWORD);
   const demoHash = await hashPassword(DEMO_USER_PASSWORD);
+  const demoCandidateHash = await hashPassword(DEMO_CANDIDATE_PASSWORD);
   const sharedHash = demoHash; // reuse one bcrypt hash for every generated candidate
 
   const nextEmail = createUniqueEmailFactory(GENERATED_CANDIDATE_EMAIL_DOMAIN);
@@ -1731,10 +1935,11 @@ async function seedCandidates(
     records.push({ candidateProfileId, email: input.email, createdAt: input.createdAt });
   };
 
-  // Primary + named candidates (preserved exactly).
+  // Primary + named + README demo candidates (all preserved exactly).
   const namedCandidates: ReadonlyArray<{ candidate: NamedCandidate; hash: string }> = [
     { candidate: PRIMARY_CANDIDATE, hash: primaryHash },
     ...NAMED_CANDIDATES.map((candidate) => ({ candidate, hash: sharedHash })),
+    ...DEMO_CANDIDATES.map((candidate) => ({ candidate, hash: demoCandidateHash })),
   ];
   for (const { candidate, hash } of namedCandidates) {
     addCandidate({
@@ -1843,6 +2048,7 @@ async function seedJobs(
   skillIdBySlug: ReadonlyMap<string, string>,
   hrUserIdsByCompanySlug: ReadonlyMap<string, string[]>,
   primaryHrUserId: string,
+  demoHrUserIds: DemoHrUserIds,
 ): Promise<JobRecord[]> {
   const jobRows: Prisma.JobCreateManyInput[] = [];
   const jobSkillRows: Prisma.JobSkillCreateManyInput[] = [];
@@ -1850,6 +2056,38 @@ async function seedJobs(
 
   const companyNameBySlug = new Map(companyDefs.map((company) => [company.slug, company.name]));
   const companySlugs = companyDefs.map((company) => company.slug);
+
+  // Pinned assignments guarantee each demo recruiter a healthy PUBLISHED board in
+  // their own organization. Slots are consumed by the leading job indices.
+  const pinnedAuthors: ReadonlyArray<{
+    readonly postedById: string;
+    readonly companySlug: string;
+    readonly count: number;
+  }> = [
+    {
+      postedById: primaryHrUserId,
+      companySlug: PRIMARY_HR_COMPANY_SLUG,
+      count: PRIMARY_HR_JOB_COUNT,
+    },
+    {
+      postedById: demoHrUserIds.hr1,
+      companySlug: SKYPOINT_COMPANY_SLUG,
+      count: DEMO_HR_1_JOB_COUNT,
+    },
+    {
+      postedById: demoHrUserIds.hr3,
+      companySlug: SKYPOINT_COMPANY_SLUG,
+      count: DEMO_HR_3_JOB_COUNT,
+    },
+    { postedById: demoHrUserIds.hr2, companySlug: VERTEX_COMPANY_SLUG, count: DEMO_HR_2_JOB_COUNT },
+  ];
+  const pinnedSlots: ReadonlyArray<{ readonly postedById: string; readonly companySlug: string }> =
+    pinnedAuthors.flatMap((author) =>
+      Array.from({ length: author.count }, () => ({
+        postedById: author.postedById,
+        companySlug: author.companySlug,
+      })),
+    );
 
   const experienceLevels: ReadonlyArray<readonly [ExperienceLevel, number]> = [
     [ExperienceLevel.INTERNSHIP, 1],
@@ -1878,15 +2116,16 @@ async function seedJobs(
   ];
 
   for (let index = 0; index < TARGET_JOBS; index += 1) {
-    // Pin an initial block to the primary HR / company so the demo board is full.
-    const pinnedToPrimary = index < PRIMARY_HR_JOB_COUNT;
-    const companySlug = pinnedToPrimary ? PRIMARY_HR_COMPANY_SLUG : pickOne(companySlugs);
+    // Pin an initial block to the primary + demo recruiters (each in their own
+    // organization) so every demo HR board is full of PUBLISHED jobs.
+    const pinnedSlot = index < pinnedSlots.length ? pinnedSlots[index] : undefined;
+    const companySlug = pinnedSlot ? pinnedSlot.companySlug : pickOne(companySlugs);
     const companyName = companyNameBySlug.get(companySlug) ?? companySlug;
     const recruiterPool = hrUserIdsByCompanySlug.get(companySlug) ?? [];
     if (recruiterPool.length === 0) {
       throw new Error(`No HR user available for company "${companySlug}".`);
     }
-    const postedById = pinnedToPrimary ? primaryHrUserId : pickOne(recruiterPool);
+    const postedById = pinnedSlot ? pinnedSlot.postedById : pickOne(recruiterPool);
 
     const role = pickOne(ROLE_TEMPLATES);
     const experienceLevel = pickWeighted(experienceLevels);
@@ -1895,7 +2134,7 @@ async function seedJobs(
         ? EmploymentType.INTERNSHIP
         : pickWeighted(employmentTypes);
     const locationType = pickWeighted(locationTypes);
-    const status = pinnedToPrimary ? JobStatus.PUBLISHED : pickWeighted(statuses);
+    const status = pinnedSlot ? JobStatus.PUBLISHED : pickWeighted(statuses);
     const band = SALARY_BY_LEVEL[experienceLevel];
     const salaryMin = band.min + randomInt(0, 3) * 100000;
     const salaryMax = salaryMin + randomInt(3, 12) * 100000;
@@ -2006,6 +2245,8 @@ async function seedApplications(
   candidates: readonly CandidateRecord[],
   jobs: readonly JobRecord[],
   primaryCandidateEmail: string,
+  demoHrUserIds: DemoHrUserIds,
+  demoCandidateEmails: readonly string[],
 ): Promise<number> {
   const applicationRows: Prisma.ApplicationCreateManyInput[] = [];
   const eventRows: Prisma.ApplicationStatusEventCreateManyInput[] = [];
@@ -2103,7 +2344,34 @@ async function seedApplications(
     });
   }
 
-  // 2) Candidate-driven generation: each candidate applies to a weighted number
+  // 2) Guarantee the README demo recruiters (hr1 in SkyPoint, hr2 in Vertex Labs)
+  //    a populated applicant board by routing the README demo candidates onto
+  //    their live jobs, spanning both organizations and varied pipeline states.
+  const demoBoardStatuses: readonly ApplicationStatus[] = [
+    ApplicationStatus.APPLIED,
+    ApplicationStatus.UNDER_REVIEW,
+    ApplicationStatus.SHORTLISTED,
+    ApplicationStatus.INTERVIEW,
+    ApplicationStatus.OFFERED,
+  ];
+  const demoCandidateRecords = demoCandidateEmails
+    .map((email) => candidates.find((candidate) => candidate.email === email))
+    .filter((candidate): candidate is CandidateRecord => candidate !== undefined);
+  const demoRecruiterIds: readonly string[] = [demoHrUserIds.hr1, demoHrUserIds.hr2];
+  for (const recruiterId of demoRecruiterIds) {
+    const recruiterJobs = liveJobs.filter((job) => job.postedById === recruiterId);
+    if (recruiterJobs.length === 0) {
+      continue;
+    }
+    for (const candidate of demoCandidateRecords) {
+      const boardJobs = pickDistinct(recruiterJobs, DEMO_CANDIDATE_DEMO_APPLICATIONS);
+      boardJobs.forEach((job, position) => {
+        addApplication(job, candidate, demoBoardStatuses[position] ?? ApplicationStatus.APPLIED);
+      });
+    }
+  }
+
+  // 3) Candidate-driven generation: each candidate applies to a weighted number
   //    of jobs, picking jobs by popularity so the distribution is realistic.
   for (const candidate of candidates) {
     const applicationCount = pickWeighted(
@@ -2139,7 +2407,7 @@ async function main(): Promise<void> {
   const skillIdBySlug = await seedSkills();
   console.info(`  ✓ ${skillIdBySlug.size} skills`);
 
-  const { primaryHrUserId, hrUserIdsByCompanySlug } = await seedHrUsers(
+  const { primaryHrUserId, demoHrUserIds, hrUserIdsByCompanySlug } = await seedHrUsers(
     companyDefs,
     companyIdBySlug,
   );
@@ -2159,15 +2427,28 @@ async function main(): Promise<void> {
     skillIdBySlug,
     hrUserIdsByCompanySlug,
     primaryHrUserId,
+    demoHrUserIds,
   );
   console.info(`  ✓ ${jobs.length} jobs`);
 
-  const applicationCount = await seedApplications(candidates, jobs, PRIMARY_CANDIDATE_EMAIL);
+  const applicationCount = await seedApplications(
+    candidates,
+    jobs,
+    PRIMARY_CANDIDATE_EMAIL,
+    demoHrUserIds,
+    [DEMO_CANDIDATE_1_EMAIL, DEMO_CANDIDATE_2_EMAIL],
+  );
   console.info(`  ✓ ${applicationCount} applications (with status-event history)`);
 
   console.info('✅ Seed complete.');
   console.info(`   HR login:        ${PRIMARY_HR_EMAIL} / ${PRIMARY_HR_PASSWORD}`);
   console.info(`   Candidate login: ${PRIMARY_CANDIDATE_EMAIL} / ${PRIMARY_CANDIDATE_PASSWORD}`);
+  console.info('   README demo accounts:');
+  console.info(`     Candidate: ${DEMO_CANDIDATE_1_EMAIL} / ${DEMO_CANDIDATE_PASSWORD}`);
+  console.info(`     Candidate: ${DEMO_CANDIDATE_2_EMAIL} / ${DEMO_CANDIDATE_PASSWORD}`);
+  console.info(`     HR:        ${DEMO_HR_1_EMAIL} / ${DEMO_HR_PASSWORD} (SkyPoint Technologies)`);
+  console.info(`     HR:        ${DEMO_HR_3_EMAIL} / ${DEMO_HR_PASSWORD} (SkyPoint Technologies)`);
+  console.info(`     HR:        ${DEMO_HR_2_EMAIL} / ${DEMO_HR_PASSWORD} (Vertex Labs)`);
   console.info(`   Other demo accounts use the password: ${DEMO_USER_PASSWORD}`);
 }
 

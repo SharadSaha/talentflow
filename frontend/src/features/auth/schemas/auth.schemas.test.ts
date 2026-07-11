@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { loginSchema, registerSchema } from '@/features/auth/schemas/auth.schemas';
+import {
+  hrRegisterSchema,
+  loginSchema,
+  registerSchema,
+} from '@/features/auth/schemas/auth.schemas';
 
 describe('loginSchema', () => {
   const validLogin = { email: 'ada@example.com', password: 'anything', rememberMe: false };
@@ -67,5 +71,53 @@ describe('registerSchema', () => {
 
   it('rejects a registration with an invalid email', () => {
     expect(registerSchema.safeParse({ ...validRegistration, email: 'bad' }).success).toBe(false);
+  });
+});
+
+describe('hrRegisterSchema', () => {
+  const validHrRegistration = {
+    organizationName: 'Acme Inc.',
+    fullName: 'Grace Hopper',
+    email: 'grace@acme.com',
+    password: 'Str0ng!Pass',
+    confirmPassword: 'Str0ng!Pass',
+  };
+
+  it('accepts a complete, valid employer registration', () => {
+    expect(hrRegisterSchema.safeParse(validHrRegistration).success).toBe(true);
+  });
+
+  it('requires the organization name', () => {
+    const result = hrRegisterSchema.safeParse({ ...validHrRegistration, organizationName: '' });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues.some((issue) => issue.path.includes('organizationName'))).toBe(
+        true,
+      );
+      expect(result.error.issues[0]?.message).toBe('Organization name is required.');
+    }
+  });
+
+  it('rejects a whitespace-only organization name', () => {
+    const result = hrRegisterSchema.safeParse({ ...validHrRegistration, organizationName: '   ' });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues[0]?.message).toBe('Organization name is required.');
+    }
+  });
+
+  it('rejects a single-character organization name', () => {
+    const result = hrRegisterSchema.safeParse({ ...validHrRegistration, organizationName: 'A' });
+    expect(result.success).toBe(false);
+  });
+
+  it('still enforces the shared registration rules (e.g. full name)', () => {
+    const result = hrRegisterSchema.safeParse({ ...validHrRegistration, fullName: 'Grace' });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(
+        result.error.issues.some((issue) => issue.message === 'Enter your first and last name.'),
+      ).toBe(true);
+    }
   });
 });

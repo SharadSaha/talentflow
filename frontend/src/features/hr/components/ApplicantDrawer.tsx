@@ -1,6 +1,7 @@
 import { Download, PencilLine } from 'lucide-react';
 import { useState } from 'react';
 
+import { OrganizationBadge } from '@/components/OrganizationBadge';
 import { APPLICATION_STATUS_META } from '@/constants/application-status';
 import { EDUCATION_LEVEL_LABELS } from '@/constants/education';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
@@ -61,10 +62,6 @@ export function ApplicantDrawer({ applicant, open, onOpenChange }: ApplicantDraw
   const { candidate } = applicant;
   const fullName = `${candidate.firstName} ${candidate.lastName}`;
   const statusMeta = APPLICATION_STATUS_META[applicant.status];
-  const professionalTitle =
-    candidate.currentTitle && candidate.currentCompany
-      ? `${candidate.currentTitle} @ ${candidate.currentCompany}`
-      : (candidate.currentTitle ?? candidate.currentCompany ?? EMPTY_VALUE);
   const educationLabel = candidate.highestEducation
     ? EDUCATION_LEVEL_LABELS[candidate.highestEducation]
     : EMPTY_VALUE;
@@ -115,7 +112,16 @@ export function ApplicantDrawer({ applicant, open, onOpenChange }: ApplicantDraw
           <section className="flex flex-col gap-3">
             <SectionHeader title="Professional" />
             <DescriptionList>
-              <DescriptionListItem term="Current role">{professionalTitle}</DescriptionListItem>
+              <DescriptionListItem term="Current role">
+                {candidate.currentTitle ?? EMPTY_VALUE}
+              </DescriptionListItem>
+              <DescriptionListItem term="Company">
+                {candidate.currentCompany ? (
+                  <OrganizationBadge name={candidate.currentCompany} size="sm" />
+                ) : (
+                  EMPTY_VALUE
+                )}
+              </DescriptionListItem>
               <DescriptionListItem term="Experience">
                 {formatExperienceMonths(candidate.totalExperienceMonths)}
               </DescriptionListItem>

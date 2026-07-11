@@ -3,6 +3,7 @@ jest.mock('@/modules/auth/auth.repository', () => ({
     findByEmail: jest.fn(),
     findById: jest.fn(),
     createCandidate: jest.fn(),
+    createHr: jest.fn(),
   },
 }));
 
@@ -11,6 +12,7 @@ import request from 'supertest';
 import { createApp } from '@/app';
 import { hashPassword } from '@/auth/password.service';
 import { signAccessToken } from '@/auth/token.service';
+import { UserRole } from '@/generated/prisma/enums';
 import { userRepository } from '@/modules/auth/auth.repository';
 
 import { buildUser } from './fixtures';
@@ -38,6 +40,65 @@ describe('Auth API', () => {
       expect(response.body.data.user.email).toBe(validBody.email);
       expect(response.body.data.user).not.toHaveProperty('passwordHash');
       expect(response.body.data.accessToken).toEqual(expect.any(String));
+    });
+
+    it('registers an HR user with a mandatory organization', async () => {
+      mockedRepository.findByEmail.mockResolvedValue(null);
+      mockedRepository.createHr.mockResolvedValue(
+        buildUser({
+          email: 'hr.user@example.com',
+          role: UserRole.HR,
+          hrProfile: { company: { name: 'Acme Cloud' } },
+        }),
+      );
+
+      const response = await request(app).post('/api/v1/auth/register').send({
+        email: 'hr.user@example.com',
+        password: 'Str0ng@Pass',
+        firstName: 'Hiring',
+        lastName: 'Manager',
+        role: 'HR',
+        organizationName: 'Acme Cloud',
+      });
+
+      expect(response.status).toBe(201);
+      expect(response.body.data.user.role).toBe('HR');
+      expect(response.body.data.user.organizationName).toBe('Acme Cloud');
+      expect(mockedRepository.createHr).toHaveBeenCalledWith(
+        expect.objectContaining({ organizationName: 'Acme Cloud' }),
+      );
+    });
+
+    it('returns 422 when an HR registration omits the organization name', async () => {
+      const response = await request(app).post('/api/v1/auth/register').send({
+        email: 'hr.user@example.com',
+        password: 'Str0ng@Pass',
+        firstName: 'Hiring',
+        lastName: 'Manager',
+        role: 'HR',
+      });
+
+      expect(response.status).toBe(422);
+      expect(response.body.errors).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            field: 'organizationName',
+            message: 'Organization name is required.',
+          }),
+        ]),
+      );
+      expect(mockedRepository.createHr).not.toHaveBeenCalled();
+    });
+
+    it('exposes a null organizationName for candidate accounts', async () => {
+      mockedRepository.findByEmail.mockResolvedValue(null);
+      mockedRepository.createCandidate.mockResolvedValue(buildUser({ email: validBody.email }));
+
+      const response = await request(app).post('/api/v1/auth/register').send(validBody);
+
+      expect(response.status).toBe(201);
+      expect(response.body.data.user.organizationName).toBeNull();
+      expect(mockedRepository.createCandidate).toHaveBeenCalled();
     });
 
     it('returns 422 with field errors for an invalid body', async () => {

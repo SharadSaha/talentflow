@@ -6,8 +6,10 @@ import {
   buildApplicationWithJob,
   CANDIDATE_PROFILE_ID,
   CANDIDATE_USER_ID,
+  COMPANY_ID,
   HR_USER_ID,
   JOB_ID,
+  OTHER_COMPANY_ID,
 } from '../../../tests/fixtures';
 import { ApplicationService } from './application.service';
 import type { ApplicationRepository } from './application.repository';
@@ -19,6 +21,7 @@ describe('ApplicationService', () => {
       create: jest.fn(),
       findExistingApplication: jest.fn(),
       findCandidateProfileIdByUserId: jest.fn(),
+      findHrCompanyIdByUserId: jest.fn(),
       findJobApplyState: jest.fn(),
       findOwnership: jest.fn(),
       findMyApplications: jest.fn(),
@@ -31,6 +34,7 @@ describe('ApplicationService', () => {
     id: JOB_ID,
     status: JobStatus.PUBLISHED,
     deletedAt: null,
+    companyId: COMPANY_ID,
     postedById: HR_USER_ID,
   };
 
@@ -129,8 +133,9 @@ describe('ApplicationService', () => {
       sortOrder: 'desc',
     };
 
-    it('scopes the repository query to the authenticated HR user', async () => {
+    it('scopes the repository query to the authenticated HR user organization', async () => {
       const repository = buildRepository();
+      repository.findHrCompanyIdByUserId.mockResolvedValue(COMPANY_ID);
       repository.findHrApplicants.mockResolvedValue({
         items: [buildApplicantWithProfile()],
         total: 1,
@@ -140,7 +145,7 @@ describe('ApplicationService', () => {
       const result = await service.getHrApplicants(HR_USER_ID, baseQuery);
 
       expect(repository.findHrApplicants).toHaveBeenCalledWith(
-        expect.objectContaining({ hrUserId: HR_USER_ID }),
+        expect.objectContaining({ hrCompanyId: COMPANY_ID }),
       );
       expect(result.items).toHaveLength(1);
       expect(result.meta).toEqual(
@@ -150,6 +155,7 @@ describe('ApplicationService', () => {
 
     it('includes the owning job (id and title) on each applicant DTO', async () => {
       const repository = buildRepository();
+      repository.findHrCompanyIdByUserId.mockResolvedValue(COMPANY_ID);
       repository.findHrApplicants.mockResolvedValue({
         items: [buildApplicantWithProfile()],
         total: 1,
@@ -163,6 +169,7 @@ describe('ApplicationService', () => {
 
     it('forwards the status filter to the repository', async () => {
       const repository = buildRepository();
+      repository.findHrCompanyIdByUserId.mockResolvedValue(COMPANY_ID);
       repository.findHrApplicants.mockResolvedValue({ items: [], total: 0 });
       const service = new ApplicationService(repository);
 
@@ -178,8 +185,18 @@ describe('ApplicationService', () => {
       );
     });
 
+    it('rejects when the HR user has no company', async () => {
+      const repository = buildRepository();
+      repository.findHrCompanyIdByUserId.mockResolvedValue(null);
+      const service = new ApplicationService(repository);
+
+      await expect(service.getHrApplicants(HR_USER_ID, baseQuery)).rejects.toThrow(BadRequestError);
+      expect(repository.findHrApplicants).not.toHaveBeenCalled();
+    });
+
     it('forwards pagination and sort options to the repository', async () => {
       const repository = buildRepository();
+      repository.findHrCompanyIdByUserId.mockResolvedValue(COMPANY_ID);
       repository.findHrApplicants.mockResolvedValue({ items: [], total: 0 });
       const service = new ApplicationService(repository);
 
@@ -205,11 +222,12 @@ describe('ApplicationService', () => {
       id: 'app-id',
       status: ApplicationStatus.APPLIED,
       candidateProfileId: CANDIDATE_PROFILE_ID,
-      job: { postedById: HR_USER_ID, deletedAt: null },
+      job: { companyId: COMPANY_ID, postedById: HR_USER_ID, deletedAt: null },
     };
 
     it('advances the status through a valid transition', async () => {
       const repository = buildRepository();
+      repository.findHrCompanyIdByUserId.mockResolvedValue(COMPANY_ID);
       repository.findOwnership.mockResolvedValue(ownedApplication);
       repository.updateStatus.mockResolvedValue(
         buildApplicationWithJob({ status: ApplicationStatus.UNDER_REVIEW }),
@@ -231,6 +249,7 @@ describe('ApplicationService', () => {
 
     it('rejects an invalid transition', async () => {
       const repository = buildRepository();
+      repository.findHrCompanyIdByUserId.mockResolvedValue(COMPANY_ID);
       repository.findOwnership.mockResolvedValue(ownedApplication);
       const service = new ApplicationService(repository);
 
@@ -240,11 +259,12 @@ describe('ApplicationService', () => {
       expect(repository.updateStatus).not.toHaveBeenCalled();
     });
 
-    it('rejects updates for a job owned by another HR user', async () => {
+    it('rejects updates for a job in another organization', async () => {
       const repository = buildRepository();
+      repository.findHrCompanyIdByUserId.mockResolvedValue(COMPANY_ID);
       repository.findOwnership.mockResolvedValue({
         ...ownedApplication,
-        job: { postedById: 'another-hr', deletedAt: null },
+        job: { companyId: OTHER_COMPANY_ID, postedById: 'another-hr', deletedAt: null },
       });
       const service = new ApplicationService(repository);
 
@@ -262,7 +282,7 @@ describe('ApplicationService', () => {
         id: 'app-id',
         status: ApplicationStatus.APPLIED,
         candidateProfileId: CANDIDATE_PROFILE_ID,
-        job: { postedById: HR_USER_ID, deletedAt: null },
+        job: { companyId: COMPANY_ID, postedById: HR_USER_ID, deletedAt: null },
       });
       repository.updateStatus.mockResolvedValue(
         buildApplicationWithJob({ status: ApplicationStatus.WITHDRAWN }),
@@ -281,7 +301,7 @@ describe('ApplicationService', () => {
         id: 'app-id',
         status: ApplicationStatus.APPLIED,
         candidateProfileId: 'another-candidate',
-        job: { postedById: HR_USER_ID, deletedAt: null },
+        job: { companyId: COMPANY_ID, postedById: HR_USER_ID, deletedAt: null },
       });
       const service = new ApplicationService(repository);
 
@@ -297,7 +317,7 @@ describe('ApplicationService', () => {
         id: 'app-id',
         status: ApplicationStatus.HIRED,
         candidateProfileId: CANDIDATE_PROFILE_ID,
-        job: { postedById: HR_USER_ID, deletedAt: null },
+        job: { companyId: COMPANY_ID, postedById: HR_USER_ID, deletedAt: null },
       });
       const service = new ApplicationService(repository);
 

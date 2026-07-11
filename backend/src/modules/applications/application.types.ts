@@ -45,20 +45,20 @@ export interface ApplicantQuery {
   sort: ApplicantSort;
 }
 
-/** Query options for listing applicants across all jobs a given HR user owns. */
+/** Query options for listing applicants across every job in an organization. */
 export interface HrApplicantQuery {
-  hrUserId: string;
+  hrCompanyId: string;
   filters: ApplicantFilters;
   pagination: PaginationParams;
   sort: ApplicantSort;
 }
 
-/** Minimal application row plus its job's owner, used for authorization checks. */
+/** Minimal application row plus its job's organization, used for authorization. */
 export interface ApplicationOwnership {
   id: string;
   status: ApplicationStatus;
   candidateProfileId: string;
-  job: { postedById: string; deletedAt: Date | null };
+  job: { companyId: string; postedById: string; deletedAt: Date | null };
 }
 
 /** Minimal job row used to validate an apply request. */
@@ -66,5 +66,6 @@ export interface JobApplyState {
   id: string;
   status: string;
   deletedAt: Date | null;
+  companyId: string;
   postedById: string;
 }

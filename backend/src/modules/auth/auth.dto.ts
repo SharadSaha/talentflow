@@ -1,5 +1,6 @@
-import type { User } from '@/generated/prisma/client';
 import type { UserRole } from '@/generated/prisma/enums';
+
+import type { AuthUserRecord } from './auth.repository';
 
 /**
  * Public representation of a user. Deliberately excludes `passwordHash` and any
@@ -11,6 +12,7 @@ export interface AuthUserDto {
   firstName: string;
   lastName: string;
   role: UserRole;
+  organizationName: string | null;
   createdAt: string;
 }
 
@@ -20,14 +22,15 @@ export interface AuthResultDto {
   accessToken: string;
 }
 
-/** Maps a persisted `User` entity to its safe public DTO. */
-export function toAuthUserDto(user: User): AuthUserDto {
+/** Maps a persisted user (with relations) to its safe public DTO. */
+export function toAuthUserDto(user: AuthUserRecord): AuthUserDto {
   return {
     id: user.id,
     email: user.email,
     firstName: user.firstName,
     lastName: user.lastName,
     role: user.role,
+    organizationName: user.hrProfile?.company.name ?? null,
     createdAt: user.createdAt.toISOString(),
   };
 }

@@ -18,7 +18,7 @@ import { signAccessToken } from '@/auth/token.service';
 import { JobStatus, UserRole } from '@/generated/prisma/enums';
 import { jobRepository } from '@/modules/jobs/job.repository';
 
-import { buildJob, COMPANY_ID, HR_USER_ID } from './fixtures';
+import { buildJob, COMPANY_ID, HR_USER_ID, OTHER_COMPANY_ID } from './fixtures';
 
 const mockedRepository = jobRepository as jest.Mocked<typeof jobRepository>;
 const app = createApp();
@@ -132,8 +132,10 @@ describe('Jobs API', () => {
   });
 
   describe('PATCH /api/v1/jobs/:id', () => {
-    it('forbids updating a job owned by another HR user', async () => {
+    it('forbids updating a job owned by another organization', async () => {
+      mockedRepository.findHrCompanyIdByUserId.mockResolvedValue(COMPANY_ID);
       mockedRepository.findOwnership.mockResolvedValue({
+        companyId: OTHER_COMPANY_ID,
         postedById: 'another-hr',
         status: JobStatus.PUBLISHED,
         publishedAt: new Date(),
@@ -148,11 +150,54 @@ describe('Jobs API', () => {
       expect(response.status).toBe(403);
       expect(mockedRepository.update).not.toHaveBeenCalled();
     });
+
+    it('allows updating a teammate job in the same organization', async () => {
+      mockedRepository.findHrCompanyIdByUserId.mockResolvedValue(COMPANY_ID);
+      mockedRepository.findOwnership.mockResolvedValue({
+        companyId: COMPANY_ID,
+        postedById: 'teammate-hr',
+        status: JobStatus.PUBLISHED,
+        publishedAt: new Date(),
+        deletedAt: null,
+      });
+      mockedRepository.update.mockResolvedValue(buildJob({ title: 'Team Edit' }));
+
+      const response = await request(app)
+        .patch('/api/v1/jobs/019f0000-0000-7000-8000-000000000010')
+        .set('Authorization', `Bearer ${hrToken}`)
+        .send({ title: 'Team Edit' });
+
+      expect(response.status).toBe(200);
+      expect(mockedRepository.update).toHaveBeenCalled();
+    });
+  });
+
+  describe('GET /api/v1/hr/jobs', () => {
+    it('lists all jobs for the HR user organization (including teammate postings)', async () => {
+      mockedRepository.findHrCompanyIdByUserId.mockResolvedValue(COMPANY_ID);
+      mockedRepository.findMany.mockResolvedValue({
+        items: [buildJob({ postedById: 'teammate-hr' })],
+        total: 1,
+      });
+
+      const response = await request(app)
+        .get('/api/v1/hr/jobs')
+        .set('Authorization', `Bearer ${hrToken}`);
+
+      expect(response.status).toBe(200);
+      expect(response.body.data).toHaveLength(1);
+      const [options] = mockedRepository.findMany.mock.calls[0] as [
+        { scope: { companyId?: string } },
+      ];
+      expect(options.scope.companyId).toBe(COMPANY_ID);
+    });
   });
 
   describe('DELETE /api/v1/jobs/:id', () => {
-    it('soft-deletes a job owned by the HR user', async () => {
+    it('soft-deletes a job in the HR user organization', async () => {
+      mockedRepository.findHrCompanyIdByUserId.mockResolvedValue(COMPANY_ID);
       mockedRepository.findOwnership.mockResolvedValue({
+        companyId: COMPANY_ID,
         postedById: HR_USER_ID,
         status: JobStatus.PUBLISHED,
         publishedAt: new Date(),
@@ -166,6 +211,24 @@ describe('Jobs API', () => {
 
       expect(response.status).toBe(200);
       expect(mockedRepository.softDelete).toHaveBeenCalled();
+    });
+
+    it('forbids deleting a job owned by another organization', async () => {
+      mockedRepository.findHrCompanyIdByUserId.mockResolvedValue(COMPANY_ID);
+      mockedRepository.findOwnership.mockResolvedValue({
+        companyId: OTHER_COMPANY_ID,
+        postedById: 'another-hr',
+        status: JobStatus.PUBLISHED,
+        publishedAt: new Date(),
+        deletedAt: null,
+      });
+
+      const response = await request(app)
+        .delete('/api/v1/jobs/019f0000-0000-7000-8000-000000000010')
+        .set('Authorization', `Bearer ${hrToken}`);
+
+      expect(response.status).toBe(403);
+      expect(mockedRepository.softDelete).not.toHaveBeenCalled();
     });
   });
 });

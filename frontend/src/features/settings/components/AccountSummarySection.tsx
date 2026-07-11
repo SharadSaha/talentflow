@@ -1,6 +1,7 @@
 import { UserCircle } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
+import { OrganizationBadge } from '@/components/OrganizationBadge';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -47,6 +48,9 @@ export function AccountSummarySection({ profilePath }: AccountSummarySectionProp
             <span className="truncate">{user.email}</span>
             {role ? <Badge variant="primary">{USER_ROLE_LABELS[role]}</Badge> : null}
           </div>
+          {user.organizationName ? (
+            <OrganizationBadge name={user.organizationName} size="sm" className="mt-3" />
+          ) : null}
         </div>
       </div>
     </SettingsSection>

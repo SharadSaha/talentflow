@@ -3,6 +3,7 @@ jest.mock('@/modules/applications/application.repository', () => ({
     create: jest.fn(),
     findExistingApplication: jest.fn(),
     findCandidateProfileIdByUserId: jest.fn(),
+    findHrCompanyIdByUserId: jest.fn(),
     findJobApplyState: jest.fn(),
     findOwnership: jest.fn(),
     findMyApplications: jest.fn(),
@@ -23,8 +24,10 @@ import {
   buildApplicantWithProfile,
   buildApplicationWithJob,
   CANDIDATE_PROFILE_ID,
+  COMPANY_ID,
   HR_USER_ID,
   JOB_ID,
+  OTHER_COMPANY_ID,
 } from './fixtures';
 
 const mockedRepository = applicationRepository as jest.Mocked<typeof applicationRepository>;
@@ -49,6 +52,7 @@ describe('Applications API', () => {
         id: JOB_ID,
         status: JobStatus.PUBLISHED,
         deletedAt: null,
+        companyId: COMPANY_ID,
         postedById: HR_USER_ID,
       });
       mockedRepository.findExistingApplication.mockResolvedValue(null);
@@ -69,6 +73,7 @@ describe('Applications API', () => {
         id: JOB_ID,
         status: JobStatus.PUBLISHED,
         deletedAt: null,
+        companyId: COMPANY_ID,
         postedById: HR_USER_ID,
       });
       mockedRepository.findExistingApplication.mockResolvedValue({ id: 'existing' });
@@ -92,11 +97,13 @@ describe('Applications API', () => {
   });
 
   describe('GET /api/v1/jobs/:id/applications', () => {
-    it('returns applicants for the HR owner of the job', async () => {
+    it('returns applicants for an HR user of the owning organization', async () => {
+      mockedRepository.findHrCompanyIdByUserId.mockResolvedValue(COMPANY_ID);
       mockedRepository.findJobApplyState.mockResolvedValue({
         id: JOB_ID,
         status: JobStatus.PUBLISHED,
         deletedAt: null,
+        companyId: COMPANY_ID,
         postedById: HR_USER_ID,
       });
       mockedRepository.findApplicants.mockResolvedValue({
@@ -111,11 +118,13 @@ describe('Applications API', () => {
       expect(response.body.meta.total).toBe(1);
     });
 
-    it('forbids viewing applicants for a job owned by another HR user', async () => {
+    it('forbids viewing applicants for a job owned by another organization', async () => {
+      mockedRepository.findHrCompanyIdByUserId.mockResolvedValue(COMPANY_ID);
       mockedRepository.findJobApplyState.mockResolvedValue({
         id: JOB_ID,
         status: JobStatus.PUBLISHED,
         deletedAt: null,
+        companyId: OTHER_COMPANY_ID,
         postedById: 'another-hr',
       });
 
@@ -137,7 +146,8 @@ describe('Applications API', () => {
   describe('GET /api/v1/applications/hr-applicants', () => {
     const HR_APPLICANTS_PATH = '/api/v1/applications/hr-applicants';
 
-    it('returns applicants across all of the HR user jobs with the owning job', async () => {
+    it('returns applicants across all jobs in the HR user organization', async () => {
+      mockedRepository.findHrCompanyIdByUserId.mockResolvedValue(COMPANY_ID);
       mockedRepository.findHrApplicants.mockResolvedValue({
         items: [buildApplicantWithProfile()],
         total: 1,
@@ -149,7 +159,7 @@ describe('Applications API', () => {
 
       expect(response.status).toBe(200);
       expect(mockedRepository.findHrApplicants).toHaveBeenCalledWith(
-        expect.objectContaining({ hrUserId: HR_USER_ID }),
+        expect.objectContaining({ hrCompanyId: COMPANY_ID }),
       );
       expect(response.body.data[0].candidate.email).toBe('candidate@example.com');
       expect(response.body.data[0].job).toEqual({
@@ -182,10 +192,11 @@ describe('Applications API', () => {
       id: APP_ID,
       status: ApplicationStatus.APPLIED,
       candidateProfileId: CANDIDATE_PROFILE_ID,
-      job: { postedById: HR_USER_ID, deletedAt: null },
+      job: { companyId: COMPANY_ID, postedById: HR_USER_ID, deletedAt: null },
     };
 
     it('updates an applicant status through a valid transition', async () => {
+      mockedRepository.findHrCompanyIdByUserId.mockResolvedValue(COMPANY_ID);
       mockedRepository.findOwnership.mockResolvedValue(ownedApplication);
       mockedRepository.updateStatus.mockResolvedValue(
         buildApplicationWithJob({ status: ApplicationStatus.UNDER_REVIEW }),
@@ -201,6 +212,7 @@ describe('Applications API', () => {
     });
 
     it('rejects an invalid transition', async () => {
+      mockedRepository.findHrCompanyIdByUserId.mockResolvedValue(COMPANY_ID);
       mockedRepository.findOwnership.mockResolvedValue(ownedApplication);
 
       const response = await request(app)
@@ -209,6 +221,22 @@ describe('Applications API', () => {
         .send({ status: ApplicationStatus.HIRED });
 
       expect(response.status).toBe(400);
+    });
+
+    it('forbids updating an applicant for a job in another organization', async () => {
+      mockedRepository.findHrCompanyIdByUserId.mockResolvedValue(COMPANY_ID);
+      mockedRepository.findOwnership.mockResolvedValue({
+        ...ownedApplication,
+        job: { companyId: OTHER_COMPANY_ID, postedById: 'another-hr', deletedAt: null },
+      });
+
+      const response = await request(app)
+        .patch(`/api/v1/applications/${APP_ID}/status`)
+        .set('Authorization', `Bearer ${hrToken}`)
+        .send({ status: ApplicationStatus.UNDER_REVIEW });
+
+      expect(response.status).toBe(403);
+      expect(mockedRepository.updateStatus).not.toHaveBeenCalled();
     });
 
     it('rejects a status value outside the HR-settable set', async () => {

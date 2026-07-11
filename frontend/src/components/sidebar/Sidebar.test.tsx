@@ -19,6 +19,7 @@ function makeUser(role: UserRole): User {
     email: 'user@talentflow.test',
     firstName: 'Ada',
     lastName: 'Lovelace',
+    organizationName: null,
     role,
     createdAt: '2026-01-01T00:00:00.000Z',
   };

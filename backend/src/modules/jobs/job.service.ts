@@ -12,7 +12,8 @@ import type { CreateJobInput, JobListQueryInput, UpdateJobInput } from './job.sc
 import type { CreateJobData, JobQueryOptions, JobScope, UpdateJobData } from './job.types';
 
 const JOB_NOT_FOUND_MESSAGE = 'Job not found.';
-const NOT_JOB_OWNER_MESSAGE = 'You can only modify jobs you created.';
+const NOT_JOB_OWNER_MESSAGE = 'You can only modify jobs for your organization.';
+const NO_COMPANY_MESSAGE = 'Your HR account is not linked to a company.';
 
 /**
  * Business logic for the Jobs module. Enforces HR ownership on mutations,
@@ -25,7 +26,7 @@ export class JobService {
   async createJob(userId: string, input: CreateJobInput): Promise<JobDto> {
     const companyId = await this.jobs.findHrCompanyIdByUserId(userId);
     if (!companyId) {
-      throw new BadRequestError('Your HR account is not linked to a company.');
+      throw new BadRequestError(NO_COMPANY_MESSAGE);
     }
 
     await this.assertSkillsExist(input.skills);
@@ -100,7 +101,8 @@ export class JobService {
 
   /**
    * Returns a single job. Live jobs are visible to anyone; non-live jobs
-   * (draft/closed) are visible only to the HR owner. Missing/hidden jobs 404.
+   * (draft/closed) are visible only to HR users of the owning organization.
+   * Missing/hidden jobs 404.
    */
   async getJobById(jobId: string, requester: AuthUser): Promise<JobDto> {
     const job = await this.jobs.findById(jobId);
@@ -108,8 +110,13 @@ export class JobService {
       throw new NotFoundError(JOB_NOT_FOUND_MESSAGE);
     }
 
-    const isOwner = requester.role === UserRole.HR && job.postedById === requester.id;
-    if (job.status !== JobStatus.PUBLISHED && !isOwner) {
+    let canViewHidden = false;
+    if (requester.role === UserRole.HR) {
+      const hrCompanyId = await this.jobs.findHrCompanyIdByUserId(requester.id);
+      canViewHidden = hrCompanyId !== null && job.companyId === hrCompanyId;
+    }
+
+    if (job.status !== JobStatus.PUBLISHED && !canViewHidden) {
       throw new NotFoundError(JOB_NOT_FOUND_MESSAGE);
     }
 
@@ -121,9 +128,13 @@ export class JobService {
     return this.listJobs(query, { onlyPublished: true });
   }
 
-  /** Lists the authenticated HR user's own jobs (any status). */
-  getHrJobs(userId: string, query: JobListQueryInput): Promise<Paginated<JobDto>> {
-    return this.listJobs(query, { postedById: userId });
+  /** Lists every job belonging to the authenticated HR user's organization. */
+  async getHrJobs(userId: string, query: JobListQueryInput): Promise<Paginated<JobDto>> {
+    const companyId = await this.jobs.findHrCompanyIdByUserId(userId);
+    if (!companyId) {
+      throw new BadRequestError(NO_COMPANY_MESSAGE);
+    }
+    return this.listJobs(query, { companyId });
   }
 
   private async listJobs(query: JobListQueryInput, scope: JobScope): Promise<Paginated<JobDto>> {
@@ -154,11 +165,16 @@ export class JobService {
   }
 
   private async assertOwnedJob(userId: string, jobId: string) {
+    const hrCompanyId = await this.jobs.findHrCompanyIdByUserId(userId);
+    if (!hrCompanyId) {
+      throw new BadRequestError(NO_COMPANY_MESSAGE);
+    }
+
     const ownership = await this.jobs.findOwnership(jobId);
     if (!ownership || ownership.deletedAt) {
       throw new NotFoundError(JOB_NOT_FOUND_MESSAGE);
     }
-    if (ownership.postedById !== userId) {
+    if (ownership.companyId !== hrCompanyId) {
       throw new AuthorizationError(NOT_JOB_OWNER_MESSAGE);
     }
     return ownership;

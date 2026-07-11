@@ -30,8 +30,8 @@ function buildJobWhere(options: JobQueryOptions): Prisma.JobWhereInput {
   const { scope, filters } = options;
   const and: Prisma.JobWhereInput[] = [{ deletedAt: null }];
 
-  if (scope.postedById) {
-    and.push({ postedById: scope.postedById });
+  if (scope.companyId) {
+    and.push({ companyId: scope.companyId });
   }
 
   if (scope.onlyPublished) {
@@ -178,7 +178,13 @@ class PrismaJobRepository implements JobRepository {
   findOwnership(id: string): Promise<JobOwnership | null> {
     return prisma.job.findUnique({
       where: { id },
-      select: { postedById: true, status: true, publishedAt: true, deletedAt: true },
+      select: {
+        companyId: true,
+        postedById: true,
+        status: true,
+        publishedAt: true,
+        deletedAt: true,
+      },
     });
   }
 

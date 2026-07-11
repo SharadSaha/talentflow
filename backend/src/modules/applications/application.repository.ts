@@ -125,13 +125,13 @@ function buildApplicantWhere(query: ApplicantQuery): Prisma.ApplicationWhereInpu
 }
 
 /**
- * Scopes applications to the non-deleted jobs a given HR user owns and applies
- * the shared status/candidate-profile filters. Mirrors `buildApplicantWhere`
- * but keys off the owning HR user instead of a single job.
+ * Scopes applications to the non-deleted jobs of a given organization and
+ * applies the shared status/candidate-profile filters. Mirrors
+ * `buildApplicantWhere` but keys off the owning company instead of a single job.
  */
 function buildHrApplicantWhere(query: HrApplicantQuery): Prisma.ApplicationWhereInput {
   const where: Prisma.ApplicationWhereInput = {
-    job: { postedById: query.hrUserId, deletedAt: null },
+    job: { companyId: query.hrCompanyId, deletedAt: null },
   };
 
   if (query.filters.status) {
@@ -160,6 +160,7 @@ export interface ApplicationRepository {
     candidateProfileId: string,
   ): Promise<{ id: string } | null>;
   findCandidateProfileIdByUserId(userId: string): Promise<string | null>;
+  findHrCompanyIdByUserId(userId: string): Promise<string | null>;
   findJobApplyState(jobId: string): Promise<JobApplyState | null>;
   findOwnership(applicationId: string): Promise<ApplicationOwnership | null>;
   findMyApplications(
@@ -209,10 +210,18 @@ class PrismaApplicationRepository implements ApplicationRepository {
     return profile?.id ?? null;
   }
 
+  async findHrCompanyIdByUserId(userId: string): Promise<string | null> {
+    const hrProfile = await prisma.hrProfile.findUnique({
+      where: { userId },
+      select: { companyId: true },
+    });
+    return hrProfile?.companyId ?? null;
+  }
+
   findJobApplyState(jobId: string): Promise<JobApplyState | null> {
     return prisma.job.findUnique({
       where: { id: jobId },
-      select: { id: true, status: true, deletedAt: true, postedById: true },
+      select: { id: true, status: true, deletedAt: true, companyId: true, postedById: true },
     });
   }
 
@@ -223,7 +232,7 @@ class PrismaApplicationRepository implements ApplicationRepository {
         id: true,
         status: true,
         candidateProfileId: true,
-        job: { select: { postedById: true, deletedAt: true } },
+        job: { select: { companyId: true, postedById: true, deletedAt: true } },
       },
     });
   }

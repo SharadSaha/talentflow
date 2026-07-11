@@ -3,6 +3,11 @@
  */
 export const API_V1_PREFIX = '/api/v1';
 
+export const HEALTH_ROUTES = {
+  HEALTH: '/health',
+  VERSION: '/version',
+} as const;
+
 export const AUTH_ROUTES = {
   BASE: '/auth',
   REGISTER: '/register',

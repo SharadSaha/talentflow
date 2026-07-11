@@ -2,7 +2,7 @@ import { AuthorizationError, BadRequestError, NotFoundError } from '@/errors';
 import { JobStatus, LocationType, SalaryPeriod, UserRole } from '@/generated/prisma/enums';
 import type { AuthUser } from '@/types/auth';
 
-import { buildJob, COMPANY_ID, HR_USER_ID } from '../../../tests/fixtures';
+import { buildJob, COMPANY_ID, HR_USER_ID, OTHER_COMPANY_ID } from '../../../tests/fixtures';
 import { JobService } from './job.service';
 import type { JobRepository } from './job.repository';
 import type { CreateJobInput } from './job.schemas';
@@ -78,9 +78,11 @@ describe('JobService', () => {
   });
 
   describe('updateJob', () => {
-    it('rejects updates to a job owned by another HR user', async () => {
+    it('rejects updates to a job owned by another organization', async () => {
       const repository = buildRepository();
+      repository.findHrCompanyIdByUserId.mockResolvedValue(COMPANY_ID);
       repository.findOwnership.mockResolvedValue({
+        companyId: OTHER_COMPANY_ID,
         postedById: 'another-hr',
         status: JobStatus.PUBLISHED,
         publishedAt: new Date(),
@@ -96,6 +98,7 @@ describe('JobService', () => {
 
     it('throws NotFound when the job is missing or deleted', async () => {
       const repository = buildRepository();
+      repository.findHrCompanyIdByUserId.mockResolvedValue(COMPANY_ID);
       repository.findOwnership.mockResolvedValue(null);
       const service = new JobService(repository);
 
@@ -104,9 +107,11 @@ describe('JobService', () => {
       );
     });
 
-    it('updates a job owned by the HR user', async () => {
+    it('updates a job in the HR user organization', async () => {
       const repository = buildRepository();
+      repository.findHrCompanyIdByUserId.mockResolvedValue(COMPANY_ID);
       repository.findOwnership.mockResolvedValue({
+        companyId: COMPANY_ID,
         postedById: HR_USER_ID,
         status: JobStatus.PUBLISHED,
         publishedAt: new Date(),
@@ -123,9 +128,11 @@ describe('JobService', () => {
   });
 
   describe('deleteJob', () => {
-    it('soft-deletes a job owned by the HR user', async () => {
+    it('soft-deletes a job in the HR user organization', async () => {
       const repository = buildRepository();
+      repository.findHrCompanyIdByUserId.mockResolvedValue(COMPANY_ID);
       repository.findOwnership.mockResolvedValue({
+        companyId: COMPANY_ID,
         postedById: HR_USER_ID,
         status: JobStatus.PUBLISHED,
         publishedAt: new Date(),
@@ -138,9 +145,11 @@ describe('JobService', () => {
       expect(repository.softDelete).toHaveBeenCalledWith('job-id', expect.any(Date));
     });
 
-    it('rejects deletion of a job owned by another HR user', async () => {
+    it('rejects deletion of a job owned by another organization', async () => {
       const repository = buildRepository();
+      repository.findHrCompanyIdByUserId.mockResolvedValue(COMPANY_ID);
       repository.findOwnership.mockResolvedValue({
+        companyId: OTHER_COMPANY_ID,
         postedById: 'another-hr',
         status: JobStatus.PUBLISHED,
         publishedAt: new Date(),
@@ -176,16 +185,28 @@ describe('JobService', () => {
       await expect(service.getJobById('job-id', candidate)).rejects.toThrow(NotFoundError);
     });
 
-    it('shows a draft job to its HR owner', async () => {
+    it('shows a draft job to an HR user of the owning organization', async () => {
       const repository = buildRepository();
       repository.findById.mockResolvedValue(
-        buildJob({ status: JobStatus.DRAFT, postedById: HR_USER_ID }),
+        buildJob({ status: JobStatus.DRAFT, companyId: COMPANY_ID }),
       );
+      repository.findHrCompanyIdByUserId.mockResolvedValue(COMPANY_ID);
       const service = new JobService(repository);
 
       const job = await service.getJobById('job-id', hrUser);
 
       expect(job.status).toBe(JobStatus.DRAFT);
+    });
+
+    it('hides a draft job from an HR user of another organization', async () => {
+      const repository = buildRepository();
+      repository.findById.mockResolvedValue(
+        buildJob({ status: JobStatus.DRAFT, companyId: OTHER_COMPANY_ID }),
+      );
+      repository.findHrCompanyIdByUserId.mockResolvedValue(COMPANY_ID);
+      const service = new JobService(repository);
+
+      await expect(service.getJobById('job-id', hrUser)).rejects.toThrow(NotFoundError);
     });
   });
 
@@ -214,6 +235,45 @@ describe('JobService', () => {
         { scope: { onlyPublished?: boolean } },
       ];
       expect(options.scope.onlyPublished).toBe(true);
+    });
+  });
+
+  describe('getHrJobs', () => {
+    it('scopes the listing to the HR user organization (not personal postings)', async () => {
+      const repository = buildRepository();
+      repository.findHrCompanyIdByUserId.mockResolvedValue(COMPANY_ID);
+      // A job posted by a teammate — same company, different postedById.
+      repository.findMany.mockResolvedValue({
+        items: [buildJob({ postedById: 'teammate-hr' })],
+        total: 1,
+      });
+      const service = new JobService(repository);
+
+      const result = await service.getHrJobs(HR_USER_ID, {
+        page: 1,
+        limit: 10,
+        sortBy: 'createdAt',
+        sortOrder: 'desc',
+      });
+
+      expect(result.items).toHaveLength(1);
+      const [options] = repository.findMany.mock.calls[0] as [{ scope: { companyId?: string } }];
+      expect(options.scope.companyId).toBe(COMPANY_ID);
+    });
+
+    it('rejects when the HR user has no company', async () => {
+      const repository = buildRepository();
+      repository.findHrCompanyIdByUserId.mockResolvedValue(null);
+      const service = new JobService(repository);
+
+      await expect(
+        service.getHrJobs(HR_USER_ID, {
+          page: 1,
+          limit: 10,
+          sortBy: 'createdAt',
+          sortOrder: 'desc',
+        }),
+      ).rejects.toThrow(BadRequestError);
     });
   });
 });

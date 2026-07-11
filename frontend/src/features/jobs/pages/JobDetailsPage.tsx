@@ -3,7 +3,7 @@ import type { ComponentType } from 'react';
 import { useParams } from 'react-router-dom';
 
 import { BackButton } from '@/components/navigation/BackButton';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { OrganizationBadge } from '@/components/OrganizationBadge';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -20,7 +20,6 @@ import { useDisclosure } from '@/hooks/useDisclosure';
 import type { Application } from '@/types/application';
 import type { Job } from '@/types/job';
 import { formatDate } from '@/utils/date';
-import { getInitials } from '@/utils/format';
 import { formatExperienceRange, formatSalaryRange } from '@/utils/job-format';
 
 /** A single icon + text metadata item in the header meta row. */
@@ -184,39 +183,34 @@ function JobHeaderCard({ job }: { job: Job }) {
 
   return (
     <Card className="bg-widget-glow shadow-elevation-low">
-      <CardContent className="flex flex-col gap-4 p-5 sm:flex-row sm:items-start sm:gap-4">
-        <Avatar className="size-14 rounded-lg">
-          {job.company.logoUrl ? (
-            <AvatarImage src={job.company.logoUrl} alt={job.company.name} />
-          ) : null}
-          <AvatarFallback className="rounded-lg text-base">
-            {getInitials(job.company.name)}
-          </AvatarFallback>
-        </Avatar>
-
-        <div className="min-w-0 flex-1">
+      <CardContent className="flex flex-col gap-4 p-5">
+        <div className="flex flex-col gap-3">
           <h1 className="text-h1 text-foreground">{job.title}</h1>
-          <p className="mt-1 text-body text-foreground-secondary">{job.company.name}</p>
+          <OrganizationBadge
+            name={job.company.name}
+            logoUrl={job.company.logoUrl}
+            location={job.company.location}
+          />
+        </div>
 
-          <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2">
-            <MetaItem icon={MapPin}>
-              {job.location ? `${job.location} · ` : ''}
-              {WORK_MODE_LABELS[job.workMode]}
-            </MetaItem>
-            <MetaItem icon={Briefcase}>{EMPLOYMENT_TYPE_LABELS[job.employmentType]}</MetaItem>
-            <MetaItem icon={TrendingUp}>
-              {EXPERIENCE_LEVEL_LABELS[job.experienceLevel]}
-              {experience ? ` · ${experience}` : ''}
-            </MetaItem>
-            {salary ? <MetaItem icon={Clock}>{salary}</MetaItem> : null}
-            <MetaItem icon={Users}>
-              {job.openings} {job.openings === 1 ? 'opening' : 'openings'}
-            </MetaItem>
-            <MetaItem icon={CalendarDays}>Posted {formatDate(postedAt)}</MetaItem>
-            <MetaItem icon={Users}>
-              {job.applicationCount} {job.applicationCount === 1 ? 'applicant' : 'applicants'}
-            </MetaItem>
-          </div>
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+          <MetaItem icon={MapPin}>
+            {job.location ? `${job.location} · ` : ''}
+            {WORK_MODE_LABELS[job.workMode]}
+          </MetaItem>
+          <MetaItem icon={Briefcase}>{EMPLOYMENT_TYPE_LABELS[job.employmentType]}</MetaItem>
+          <MetaItem icon={TrendingUp}>
+            {EXPERIENCE_LEVEL_LABELS[job.experienceLevel]}
+            {experience ? ` · ${experience}` : ''}
+          </MetaItem>
+          {salary ? <MetaItem icon={Clock}>{salary}</MetaItem> : null}
+          <MetaItem icon={Users}>
+            {job.openings} {job.openings === 1 ? 'opening' : 'openings'}
+          </MetaItem>
+          <MetaItem icon={CalendarDays}>Posted {formatDate(postedAt)}</MetaItem>
+          <MetaItem icon={Users}>
+            {job.applicationCount} {job.applicationCount === 1 ? 'applicant' : 'applicants'}
+          </MetaItem>
         </div>
       </CardContent>
     </Card>
@@ -229,17 +223,19 @@ function JobDetailsSkeleton() {
     <div className="space-y-6" aria-hidden={true}>
       <Skeleton className="h-5 w-28" />
       <Card>
-        <CardContent className="flex flex-col gap-4 p-5 sm:flex-row sm:items-start">
-          <Skeleton className="size-14 rounded-lg" />
-          <div className="flex-1 space-y-3">
+        <CardContent className="flex flex-col gap-4 p-5">
+          <div className="flex flex-col gap-3">
             <Skeleton className="h-8 w-2/3" />
-            <Skeleton className="h-4 w-40" />
-            <div className="flex flex-wrap gap-3 pt-2">
-              <Skeleton className="h-4 w-32" />
-              <Skeleton className="h-4 w-24" />
-              <Skeleton className="h-4 w-28" />
-              <Skeleton className="h-4 w-20" />
+            <div className="flex items-center gap-2.5">
+              <Skeleton className="size-10 rounded-md" />
+              <Skeleton className="h-4 w-40" />
             </div>
+          </div>
+          <div className="flex flex-wrap gap-3">
+            <Skeleton className="h-4 w-32" />
+            <Skeleton className="h-4 w-24" />
+            <Skeleton className="h-4 w-28" />
+            <Skeleton className="h-4 w-20" />
           </div>
         </CardContent>
       </Card>

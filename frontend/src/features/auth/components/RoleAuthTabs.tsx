@@ -27,10 +27,7 @@ const ROLE_TABS: RoleTab[] = [
   { role: 'hr', label: 'HR', icon: Building2 },
 ];
 
-/**
- * Destination for each role within a given mode. HR registration is invite-only,
- * so the HR register destination is the informational access-request page.
- */
+/** Destination page for each role within a given mode (sign-in vs registration). */
 const DESTINATIONS: Record<AuthMode, Record<AuthRole, string>> = {
   login: { candidate: ROUTES.AUTH.CANDIDATE_LOGIN, hr: ROUTES.AUTH.HR_LOGIN },
   register: { candidate: ROUTES.AUTH.CANDIDATE_REGISTER, hr: ROUTES.AUTH.HR_REGISTER },

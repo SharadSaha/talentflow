@@ -1,9 +1,11 @@
 import { hashPassword } from '@/auth/password.service';
 import { AuthenticationError, ConflictError, NotFoundError } from '@/errors';
+import { UserRole } from '@/generated/prisma/enums';
 
 import { buildUser } from '../../../tests/fixtures';
 import { AuthService } from './auth.service';
 import type { UserRepository } from './auth.repository';
+import type { RegisterInput } from './auth.schemas';
 
 describe('AuthService', () => {
   const buildRepository = () =>
@@ -11,13 +13,15 @@ describe('AuthService', () => {
       findByEmail: jest.fn(),
       findById: jest.fn(),
       createCandidate: jest.fn(),
+      createHr: jest.fn(),
     }) satisfies UserRepository;
 
-  const registerInput = {
+  const registerInput: RegisterInput = {
     email: 'new.user@example.com',
     password: 'Str0ng@Pass',
     firstName: 'New',
     lastName: 'User',
+    role: UserRole.CANDIDATE,
   };
 
   describe('register', () => {
@@ -45,6 +49,32 @@ describe('AuthService', () => {
       const service = new AuthService(repository);
 
       await expect(service.register(registerInput)).rejects.toThrow(ConflictError);
+      expect(repository.createCandidate).not.toHaveBeenCalled();
+    });
+
+    it('creates an HR account bound to an organization when role is HR', async () => {
+      const repository = buildRepository();
+      repository.findByEmail.mockResolvedValue(null);
+      repository.createHr.mockResolvedValue(
+        buildUser({
+          email: registerInput.email,
+          role: UserRole.HR,
+          hrProfile: { company: { name: 'Acme Cloud' } },
+        }),
+      );
+      const service = new AuthService(repository);
+
+      const result = await service.register({
+        ...registerInput,
+        role: UserRole.HR,
+        organizationName: 'Acme Cloud',
+      });
+
+      expect(result.user.role).toBe(UserRole.HR);
+      expect(result.user.organizationName).toBe('Acme Cloud');
+      expect(repository.createHr).toHaveBeenCalledWith(
+        expect.objectContaining({ organizationName: 'Acme Cloud' }),
+      );
       expect(repository.createCandidate).not.toHaveBeenCalled();
     });
   });

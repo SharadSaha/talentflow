@@ -21,6 +21,11 @@ export const PASSWORD_REQUIREMENTS_MESSAGE =
   'Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character.';
 
 export const NAME_MAX_LENGTH = 100;
+
+/** Bounds for an organization (company) name supplied at HR registration. */
+export const ORGANIZATION_NAME_MIN_LENGTH = 2;
+export const ORGANIZATION_NAME_MAX_LENGTH = 120;
+
 export const HEADLINE_MAX_LENGTH = 160;
 export const ABOUT_MAX_LENGTH = 2000;
 export const PHONE_MAX_LENGTH = 20;

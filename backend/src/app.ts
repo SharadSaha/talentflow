@@ -1,7 +1,7 @@
 import compression from 'compression';
 import cookieParser from 'cookie-parser';
 import cors from 'cors';
-import express, { type Application, type Request, type Response } from 'express';
+import express, { type Application } from 'express';
 import helmet from 'helmet';
 import morgan from 'morgan';
 
@@ -10,6 +10,7 @@ import { API_V1_PREFIX } from '@/constants/routes';
 import { errorHandler } from '@/middlewares/error-handler';
 import { notFound } from '@/middlewares/not-found';
 import { globalRateLimiter } from '@/middlewares/rate-limiter';
+import { healthRouter } from '@/modules/health/health.routes';
 import { v1Router } from '@/routes';
 
 /**
@@ -46,18 +47,12 @@ export function createApp(): Application {
     app.use(morgan(env.NODE_ENV === 'production' ? 'combined' : 'dev'));
   }
 
+  // Operational endpoints (/health, /version) — mounted before rate limiting so
+  // container/load-balancer probes are never throttled.
+  app.use(healthRouter);
+
   // Basic rate limiting (coarse, applied to every request).
   app.use(globalRateLimiter);
-
-  // Health check — used by Docker/Compose and load balancers.
-  app.get('/health', (_req: Request, res: Response) => {
-    res.status(200).json({
-      status: 'ok',
-      service: 'talentflow-backend',
-      environment: env.NODE_ENV,
-      uptime: process.uptime(),
-    });
-  });
 
   // Versioned API routes.
   app.use(API_V1_PREFIX, v1Router);

@@ -36,11 +36,11 @@ export interface JobSort {
 /**
  * Base scope for a job listing:
  *   - `onlyPublished` — restrict to live (PUBLISHED, non-deleted) jobs (candidate browse).
- *   - `postedById` — restrict to a single HR user's own jobs.
+ *   - `companyId` — restrict to a single organization's jobs (HR board).
  */
 export interface JobScope {
   onlyPublished?: boolean;
-  postedById?: string;
+  companyId?: string;
 }
 
 /** Full set of options the repository needs to run a job list query. */
@@ -95,6 +95,7 @@ export interface UpdateJobData {
 
 /** Minimal job row used for ownership/state checks before a mutation. */
 export interface JobOwnership {
+  companyId: string;
   postedById: string;
   status: JobStatus;
   publishedAt: Date | null;
