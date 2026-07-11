@@ -1,0 +1,17 @@
+node_modules
+dist
+coverage
+generated
+.git
+.gitignore
+Dockerfile
+.dockerignore
+.env
+.env.*
+!.env.example
+npm-debug.log
+*.local
+.DS_Store
+tests
+**/*.test.ts
+**/*.spec.ts

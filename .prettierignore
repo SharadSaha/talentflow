@@ -1,0 +1,10 @@
+node_modules
+dist
+build
+coverage
+.vite
+frontend/dist
+backend/dist
+**/prisma/migrations
+package-lock.json
+*.md

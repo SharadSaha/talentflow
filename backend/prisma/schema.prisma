@@ -1,0 +1,32 @@
+// TalentFlow — Prisma schema
+// Docs: https://pris.ly/d/prisma-schema
+//
+// NOTE: Data models are intentionally NOT defined yet. This file only
+// configures the generator and datasource. Models (User, Job, Application, …)
+// will be added when features are implemented.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  // The connection URL (DATABASE_URL) is configured in `prisma.config.ts`.
+}
+
+// ---------------------------------------------------------------------------
+// Models will be added here, e.g.:
+//
+// enum Role {
+//   HR
+//   CANDIDATE
+// }
+//
+// model User {
+//   id        String   @id @default(uuid())
+//   email     String   @unique
+//   role      Role
+//   createdAt DateTime @default(now())
+// }
+// ---------------------------------------------------------------------------

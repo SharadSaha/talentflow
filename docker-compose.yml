@@ -1,0 +1,104 @@
+# =============================================================================
+# TalentFlow — full-stack local/production Docker Compose
+#
+# Start everything with:
+#     docker compose up --build
+#
+# Services & host ports:
+#   frontend  -> http://localhost:8080   (nginx serving the React SPA)
+#   backend   -> http://localhost:4000   (Express API, /health)
+#   postgres  -> localhost:5432
+#   redis     -> localhost:6379
+#
+# All values below have sensible defaults, so no extra configuration is
+# required. Override any of them via a root `.env` file if you wish.
+# =============================================================================
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: talentflow-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-talentflow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-talentflow}
+      POSTGRES_DB: ${POSTGRES_DB:-talentflow}
+    ports:
+      - '${POSTGRES_PORT:-5432}:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - talentflow
+    healthcheck:
+      test:
+        ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-talentflow} -d ${POSTGRES_DB:-talentflow}']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: talentflow-redis
+    restart: unless-stopped
+    command: ['redis-server', '--appendonly', 'yes']
+    ports:
+      - '${REDIS_PORT:-6379}:6379'
+    volumes:
+      - redis_data:/data
+    networks:
+      - talentflow
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: talentflow-backend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      PORT: 4000
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:8080}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-talentflow}:${POSTGRES_PASSWORD:-talentflow}@postgres:5432/${POSTGRES_DB:-talentflow}?schema=public
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1d}
+    ports:
+      - '${BACKEND_PORT:-4000}:4000'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - talentflow
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:4000/api}
+        VITE_APP_NAME: ${VITE_APP_NAME:-TalentFlow}
+    container_name: talentflow-frontend
+    restart: unless-stopped
+    ports:
+      - '${FRONTEND_PORT:-8080}:80'
+    depends_on:
+      - backend
+    networks:
+      - talentflow
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  talentflow:
+    driver: bridge

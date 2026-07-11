@@ -1,0 +1,22 @@
+{
+  "name": "talentflow",
+  "version": "0.1.0",
+  "private": true,
+  "description": "TalentFlow — a job portal for HR and Candidate roles (monorepo root).",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "prepare": "husky",
+    "dev:frontend": "npm --prefix frontend run dev",
+    "dev:backend": "npm --prefix backend run dev",
+    "install:all": "npm install && npm --prefix frontend install && npm --prefix backend install",
+    "lint": "npm --prefix frontend run lint && npm --prefix backend run lint",
+    "format": "prettier --write \"**/*.{js,ts,tsx,json,md,yml,yaml}\" --ignore-path .gitignore"
+  },
+  "devDependencies": {
+    "husky": "^9.1.7",
+    "lint-staged": "^15.2.11",
+    "prettier": "^3.4.2"
+  }
+}
