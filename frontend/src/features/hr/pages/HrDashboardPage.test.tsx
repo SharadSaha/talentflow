@@ -40,7 +40,7 @@ describe('HrDashboardPage', () => {
     mockDashboard();
     renderDashboard();
     expect(
-      await screen.findByRole('heading', { level: 1, name: /dashboard/i }),
+      await screen.findByRole('heading', { level: 1, name: /hiring hub/i }),
     ).toBeInTheDocument();
   });
 

@@ -39,6 +39,16 @@ function MetaItem({
   );
 }
 
+/** A single label/value fact in the apply-card summary. */
+function ApplyFact({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex flex-col gap-0.5">
+      <dt className="text-caption text-foreground-muted">{label}</dt>
+      <dd className="text-small font-medium text-foreground">{value}</dd>
+    </div>
+  );
+}
+
 /** The apply panel: reflects existing application, closed roles, or an apply CTA. */
 function ApplyCard({ job, application }: { job: Job; application: Application | undefined }) {
   const applyDialog = useDisclosure();
@@ -52,7 +62,7 @@ function ApplyCard({ job, application }: { job: Job; application: Application | 
   const isOpenForApplications = job.status === JOB_STATUS.PUBLISHED;
 
   return (
-    <Card className="lg:sticky lg:top-6">
+    <Card className="bg-widget-glow shadow-elevation-medium lg:sticky lg:top-6">
       <CardContent className="flex flex-col gap-4 p-5">
         <div className="flex flex-col gap-1">
           {salary ? (
@@ -64,6 +74,16 @@ function ApplyCard({ job, application }: { job: Job; application: Application | 
             {EMPLOYMENT_TYPE_LABELS[job.employmentType]} · {WORK_MODE_LABELS[job.workMode]}
           </span>
         </div>
+
+        <dl className="grid grid-cols-2 gap-x-4 gap-y-3 rounded-md border border-border-subtle bg-muted/30 p-3">
+          <ApplyFact label="Experience" value={EXPERIENCE_LEVEL_LABELS[job.experienceLevel]} />
+          <ApplyFact
+            label="Openings"
+            value={`${job.openings} ${job.openings === 1 ? 'seat' : 'seats'}`}
+          />
+          <ApplyFact label="Work mode" value={WORK_MODE_LABELS[job.workMode]} />
+          <ApplyFact label="Applicants" value={`${job.applicationCount} applied`} />
+        </dl>
 
         {application ? (
           <div className="flex flex-col gap-3">
@@ -112,7 +132,7 @@ function SkillsCard({ job }: { job: Job }) {
   if (job.skills.length === 0) return null;
 
   return (
-    <Card>
+    <Card className="shadow-elevation-low">
       <CardHeader>
         <CardTitle>Skills</CardTitle>
       </CardHeader>
@@ -163,7 +183,7 @@ function JobHeaderCard({ job }: { job: Job }) {
   const postedAt = job.publishedAt ?? job.createdAt;
 
   return (
-    <Card>
+    <Card className="bg-widget-glow shadow-elevation-low">
       <CardContent className="flex flex-col gap-4 p-5 sm:flex-row sm:items-start sm:gap-4">
         <Avatar className="size-14 rounded-lg">
           {job.company.logoUrl ? (
@@ -306,7 +326,7 @@ export default function JobDetailsPage() {
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_320px]">
         <div className="space-y-6">
-          <Card>
+          <Card className="shadow-elevation-low">
             <CardHeader>
               <CardTitle>Description</CardTitle>
             </CardHeader>

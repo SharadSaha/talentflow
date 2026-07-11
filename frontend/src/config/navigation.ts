@@ -72,7 +72,7 @@ const CANDIDATE_NAVIGATION: NavigationConfig = {
       items: [
         {
           key: 'candidate-dashboard',
-          title: 'Dashboard',
+          title: 'Career Hub',
           to: ROUTES.CANDIDATE.DASHBOARD,
           icon: LayoutDashboard,
           description: 'Your activity at a glance',
@@ -87,7 +87,7 @@ const CANDIDATE_NAVIGATION: NavigationConfig = {
         },
         {
           key: 'candidate-applications',
-          title: 'Applied Jobs',
+          title: 'My Applications',
           to: ROUTES.CANDIDATE.APPLICATIONS,
           icon: FileText,
           description: 'Track your applications',
@@ -111,7 +111,6 @@ const CANDIDATE_NAVIGATION: NavigationConfig = {
           to: ROUTES.CANDIDATE.SETTINGS,
           icon: Settings,
           description: 'Preferences',
-          comingSoon: true,
         },
       ],
     },
@@ -130,7 +129,7 @@ const HR_NAVIGATION: NavigationConfig = {
       items: [
         {
           key: 'hr-dashboard',
-          title: 'Dashboard',
+          title: 'Hiring Hub',
           to: ROUTES.HR.DASHBOARD,
           icon: LayoutDashboard,
           description: 'Hiring overview',
@@ -169,7 +168,6 @@ const HR_NAVIGATION: NavigationConfig = {
           to: ROUTES.HR.SETTINGS,
           icon: Settings,
           description: 'Workspace preferences',
-          comingSoon: true,
         },
       ],
     },

@@ -134,7 +134,7 @@ describe('AppRouter', () => {
     renderApp('/candidate/dashboard', { token: 'valid-token' });
 
     expect(
-      await screen.findByRole('heading', { level: 1, name: /dashboard/i }, { timeout: 3000 }),
+      await screen.findByRole('heading', { level: 1, name: /career hub/i }, { timeout: 3000 }),
     ).toBeInTheDocument();
   });
 
@@ -146,7 +146,7 @@ describe('AppRouter', () => {
     renderApp('/hr/dashboard', { token: 'valid-token' });
 
     expect(
-      await screen.findByRole('heading', { level: 1, name: /dashboard/i }, { timeout: 3000 }),
+      await screen.findByRole('heading', { level: 1, name: /hiring hub/i }, { timeout: 3000 }),
     ).toBeInTheDocument();
   });
 

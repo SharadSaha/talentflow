@@ -46,6 +46,8 @@
   --color-primary: hsl(var(--primary));
   --color-primary-hover: hsl(var(--primary-hover));
   --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-primary-subtle: hsl(var(--primary-subtle));
+  --color-primary-subtle-foreground: hsl(var(--primary-subtle-foreground));
 
   --color-secondary: hsl(var(--secondary));
   --color-secondary-foreground: hsl(var(--secondary-foreground));
@@ -87,6 +89,11 @@
   --radius-md: var(--radius-md);
   --radius-lg: var(--radius-lg);
   --radius-xl: var(--radius-xl);
+
+  /* Elevation — exposes `shadow-elevation-{low,medium,high}`, theme-aware. */
+  --shadow-elevation-low: var(--elevation-low);
+  --shadow-elevation-medium: var(--elevation-medium);
+  --shadow-elevation-high: var(--elevation-high);
 
   /* Motion — durations and easing from the design system. */
   --ease-emphasized: cubic-bezier(0.16, 1, 0.3, 1);
@@ -357,6 +364,54 @@
   .bg-dots {
     background-image: radial-gradient(hsl(var(--border) / 0.9) 1px, transparent 1px);
     background-size: 1.5rem 1.5rem;
+  }
+
+  /*
+   * Page-level depth. `.bg-app-depth` lays two very soft radial washes over the
+   * app background so authenticated surfaces feel lit rather than flat. Kept at
+   * low opacity to add atmosphere without visual noise.
+   */
+  .bg-app-depth {
+    background-color: hsl(var(--background));
+    background-image:
+      radial-gradient(60rem 60rem at 100% -10%, hsl(var(--primary) / 0.06), transparent 60%),
+      radial-gradient(50rem 50rem at -10% 0%, hsl(var(--chart-2) / 0.05), transparent 55%);
+    background-attachment: fixed;
+  }
+
+  /* Soft primary glow behind a hero widget — purely decorative, token-driven. */
+  .bg-widget-glow {
+    position: relative;
+    isolation: isolate;
+  }
+  .bg-widget-glow::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: inherit;
+    background-image: radial-gradient(
+      24rem 16rem at 85% -20%,
+      hsl(var(--primary) / 0.16),
+      transparent 70%
+    );
+    pointer-events: none;
+  }
+
+  /* Elevated surface treatment reused by dashboard widgets + panels. */
+  .surface-widget {
+    background-color: hsl(var(--card));
+    border: 1px solid hsl(var(--border));
+    border-radius: var(--radius-lg);
+    box-shadow: var(--elevation-low);
+    transition:
+      box-shadow var(--duration-normal) var(--ease-emphasized),
+      border-color var(--duration-normal) var(--ease-emphasized),
+      transform var(--duration-normal) var(--ease-emphasized);
+  }
+  .surface-widget-interactive:hover {
+    border-color: hsl(var(--border) / 0.6);
+    box-shadow: var(--elevation-medium);
   }
 }
 

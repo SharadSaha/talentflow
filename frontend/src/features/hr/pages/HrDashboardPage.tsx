@@ -15,6 +15,8 @@ import { TopPerformingJobCard } from '@/features/hr/components/TopPerformingJobC
 import { useGetHrDashboardQuery } from '@/features/hr/api/hrDashboardApi';
 import { useAuth } from '@/hooks/useAuth';
 
+const PAGE_TITLE = 'Hiring Hub';
+
 /** Builds a personalised greeting for the dashboard subtitle. */
 function buildSubtitle(firstName: string | undefined): string {
   return firstName
@@ -38,7 +40,7 @@ export default function HrDashboardPage() {
   if (isError || !data) {
     return (
       <div className="space-y-6">
-        <PageHeader title="Dashboard" description={subtitle} />
+        <PageHeader title={PAGE_TITLE} description={subtitle} />
         <Card>
           <CardContent className="flex flex-col items-center gap-4 py-12 text-center">
             <span className="rounded-full bg-danger/10 p-3 text-danger">
@@ -62,29 +64,36 @@ export default function HrDashboardPage() {
   }
 
   return (
-    <div className="space-y-6">
-      <PageHeader title="Dashboard" description={subtitle} />
+    <div className="space-y-8">
+      <PageHeader title={PAGE_TITLE} description={subtitle} />
+
+      <HrQuickActions />
 
       <HrStatGrid dashboard={data} />
 
-      <HiringFunnelCard breakdown={data.applicantStatusBreakdown} />
-
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+        <div className="lg:col-span-2">
+          <HiringFunnelCard breakdown={data.applicantStatusBreakdown} />
+        </div>
         <StatusDistributionCard
           breakdown={data.applicantStatusBreakdown}
           total={data.totalApplicants}
         />
-        <JobsStatusCard dashboard={data} />
       </div>
 
-      {data.topPerformingJob ? <TopPerformingJobCard job={data.topPerformingJob} /> : null}
+      {data.topPerformingJob ? (
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+          <JobsStatusCard dashboard={data} />
+          <TopPerformingJobCard job={data.topPerformingJob} />
+        </div>
+      ) : (
+        <JobsStatusCard dashboard={data} />
+      )}
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <RecentApplicationsCard applications={data.recentApplications} />
         <RecentJobsCard jobs={data.recentJobs} />
       </div>
-
-      <HrQuickActions />
     </div>
   );
 }

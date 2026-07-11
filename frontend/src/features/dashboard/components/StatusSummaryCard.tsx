@@ -16,7 +16,7 @@ export function StatusSummaryCard({ byStatus }: StatusSummaryCardProps) {
     .filter((entry) => entry.count > 0);
 
   return (
-    <Card>
+    <Card className="shadow-elevation-low">
       <CardHeader>
         <CardTitle>Application status</CardTitle>
       </CardHeader>

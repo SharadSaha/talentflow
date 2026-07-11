@@ -31,7 +31,7 @@ export function HiringFunnelCard({ breakdown }: HiringFunnelCardProps) {
   const max = Math.max(1, ...stages.map((stage) => stage.count));
 
   return (
-    <Card>
+    <Card className="bg-widget-glow shadow-elevation-low">
       <CardHeader>
         <h2 className="text-h3">Hiring funnel</h2>
         <CardDescription>Applicants at each stage of the pipeline.</CardDescription>

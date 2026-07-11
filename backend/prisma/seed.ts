@@ -1,39 +1,42 @@
 /**
  * Database seed script.
  *
- * Generates a large, realistic development dataset so every screen of the
- * application has meaningful content and the filters/pagination have enough
- * volume to exercise:
- *   * 24 companies + 105 skills (shared reference data)
- *   * 48 HR users (one+ per company) and 112 candidate users (160 users total)
- *   * 112 candidate profiles with skills, education and filterable attributes
- *   * 320 jobs distributed across companies and their HR owners
- *   * 900+ applications spread realistically across jobs / candidates / time,
- *     each with an append-only status-event audit trail
+ * Generates a large, realistic and fully DETERMINISTIC development dataset so
+ * every screen has meaningful content and the filters/pagination/search are
+ * exercised at scale. Approximate volumes:
+ *   *  ~50 companies + ~300 skills            (shared reference vocabulary)
+ *   * ~100 HR users     (each with an HrProfile, spread across companies)
+ *   * ~500 candidate users (each with a CandidateProfile, skills & education)
+ *   * ~500 jobs         (distributed across companies / HR authors, with skills)
+ *   * ~3000 applications (natural long-tail spread), each with a chronologically
+ *           consistent ApplicationStatusEvent audit trail
  *
- * Design notes:
- *   * All randomness flows through a single seeded PRNG (`rng`) so repeated runs
- *     produce the SAME dataset — reproducible demos and stable screenshots. The
- *     previous seed used only static literals; this keeps that determinism while
- *     scaling up volume. (`Math.random` is intentionally avoided.)
- *   * Rows are inserted with `createMany` in batches for performance. Because
- *     Prisma's `createMany` cannot return generated ids, primary keys are minted
- *     up-front with `crypto.randomUUID()` so foreign keys can be pre-wired.
- *   * The script is idempotent: it clears the relevant tables (in FK-safe order)
- *     before inserting, so it can be run repeatedly.
+ * Determinism:
+ *   * All randomness flows through a single seeded Faker instance
+ *     (`faker.seed(FAKER_SEED)`) and a fixed reference date
+ *     (`faker.setDefaultRefDate(REFERENCE_DATE)`). Repeated runs therefore
+ *     produce byte-identical data — reproducible demos and stable screenshots.
+ *     `Math.random`, `Date.now()` and `crypto.randomUUID()` are intentionally
+ *     avoided because none of them are reproducible.
+ *
+ * Performance:
+ *   * The shared candidate/HR password is hashed with bcrypt exactly ONCE and
+ *     the resulting hash is reused for every generated account (only the small
+ *     set of well-known demo accounts are hashed individually).
+ *   * Rows are minted with pre-generated ids so foreign keys can be pre-wired,
+ *     then inserted with `createMany` in batches — no N+1 awaits in tight loops.
  *
  * The well-known demo accounts documented for the project are preserved exactly:
  *   * HR        — admin@test.com     / Admin@1234
  *   * Candidate — candidate@test.com / Candidate@1234
- * plus the named secondary HR/candidate accounts (…@test.com / Password@123).
+ *   * Named secondary HR / candidate accounts — <name>@test.com / Password@123
  *
  * Run with: `npm run prisma:seed`  (or `npx prisma db seed`)
  */
 import 'dotenv/config';
 
-import { randomUUID } from 'node:crypto';
-
 import { PrismaPg } from '@prisma/adapter-pg';
+import { faker } from '@faker-js/faker';
 import bcrypt from 'bcrypt';
 
 import {
@@ -58,8 +61,35 @@ if (!connectionString) {
 
 const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
 
+// ---------------------------------------------------------------------------
+// Determinism, sizing and tuning constants
+// ---------------------------------------------------------------------------
+
+/** Fixed Faker seed — the single source of reproducibility for the whole run. */
+const FAKER_SEED = 20260101;
+/** Fixed "now": every generated date is anchored to (and precedes) this instant. */
+const REFERENCE_DATE = new Date('2026-01-01T00:00:00.000Z');
+/** Oldest activity in the dataset (~18 months before the reference date). */
+const EARLIEST_ACTIVITY_DAYS_AGO = 540;
+
 const BCRYPT_SALT_ROUNDS = 12;
-const INSERT_BATCH_SIZE = 500;
+const INSERT_BATCH_SIZE = 1000;
+const MILLIS_PER_DAY = 24 * 60 * 60 * 1000;
+
+// Target volumes (totals, inclusive of the preserved demo accounts).
+const TARGET_COMPANIES = 50;
+const TARGET_SKILLS = 300;
+const TARGET_HR_USERS = 100;
+const TARGET_CANDIDATES = 500;
+const TARGET_JOBS = 500;
+/** Applications generated per candidate; the total lands near ~3000. */
+const APPLICATIONS_PER_CANDIDATE = [
+  { value: 3, weight: 3 },
+  { value: 5, weight: 4 },
+  { value: 7, weight: 4 },
+  { value: 11, weight: 2 },
+  { value: 16, weight: 1 },
+] as const;
 
 // Well-known demo accounts (kept stable so documented logins keep working).
 const PRIMARY_HR_EMAIL = 'admin@test.com';
@@ -68,91 +98,74 @@ const PRIMARY_CANDIDATE_EMAIL = 'candidate@test.com';
 const PRIMARY_CANDIDATE_PASSWORD = 'Candidate@1234';
 const DEMO_USER_PASSWORD = 'Password@123';
 
-// Target volumes (kept above every requested minimum).
-const TARGET_HR_USERS = 48;
-const TARGET_CANDIDATES = 112;
-const TARGET_JOBS = 320;
+// Company the primary HR recruits for (must exist in the curated company list).
+const PRIMARY_HR_COMPANY_SLUG = 'acme-cloud';
+/** How many jobs are pinned to the primary HR so the demo HR board is full. */
+const PRIMARY_HR_JOB_COUNT = 24;
+/** How many varied applications the primary candidate receives for the demo. */
+const PRIMARY_CANDIDATE_DEMO_APPLICATIONS = 6;
+
+// Domains for generated (non-demo) accounts — kept distinct from the demo domain.
+const GENERATED_HR_EMAIL_DOMAIN = 'talentflow.dev';
+const GENERATED_CANDIDATE_EMAIL_DOMAIN = 'mail.talentflow.dev';
+
+faker.seed(FAKER_SEED);
+faker.setDefaultRefDate(REFERENCE_DATE);
 
 // ---------------------------------------------------------------------------
-// Seeded pseudo-random number generator + small sampling helpers
+// Deterministic sampling helpers (all randomness routes through Faker)
 // ---------------------------------------------------------------------------
 
-/**
- * mulberry32 — a tiny, fast, deterministic PRNG. Given the same seed it always
- * yields the same sequence, which keeps the generated dataset reproducible.
- */
-function createRng(seed: number): () => number {
-  let state = seed >>> 0;
-  return (): number => {
-    state = (state + 0x6d2b79f5) | 0;
-    let t = Math.imul(state ^ (state >>> 15), 1 | state);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
+/** A stable, seeded UUID used to pre-wire foreign keys before insertion. */
+function newId(): string {
+  return faker.string.uuid();
 }
 
-const rng = createRng(0x7a1e5f10);
+/** URL-safe slug: lowercase, alphanumerics separated by single hyphens. */
+function toSlug(text: string): string {
+  return faker.helpers
+    .slugify(text)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
 
 /** Random integer in the inclusive range [min, max]. */
-function randInt(min: number, max: number): number {
-  return min + Math.floor(rng() * (max - min + 1));
+function randomInt(min: number, max: number): number {
+  return faker.number.int({ min, max });
 }
 
-/** Returns true with probability `p` (0..1). */
-function chance(p: number): boolean {
-  return rng() < p;
+/** Returns true with probability `probability` (0..1). */
+function chance(probability: number): boolean {
+  return faker.datatype.boolean(probability);
 }
 
 /** Picks one element from a non-empty array. */
-function pick<T>(items: readonly T[]): T {
-  const value = items[Math.floor(rng() * items.length)];
-  if (value === undefined) {
-    throw new Error('pick() called on an empty array.');
-  }
-  return value;
+function pickOne<T>(items: readonly T[]): T {
+  return faker.helpers.arrayElement(items);
 }
 
-/** Returns a shuffled shallow copy (Fisher–Yates with the seeded RNG). */
-function shuffled<T>(items: readonly T[]): T[] {
-  const copy = [...items];
-  for (let i = copy.length - 1; i > 0; i -= 1) {
-    const j = Math.floor(rng() * (i + 1));
-    const a = copy[i];
-    const b = copy[j];
-    if (a !== undefined && b !== undefined) {
-      copy[i] = b;
-      copy[j] = a;
-    }
-  }
-  return copy;
-}
-
-/** Picks `count` distinct elements (clamped to the array length). */
+/** Picks up to `count` distinct elements (order shuffled). */
 function pickDistinct<T>(items: readonly T[], count: number): T[] {
-  return shuffled(items).slice(0, Math.min(count, items.length));
+  return faker.helpers.arrayElements(items, Math.min(count, items.length));
 }
 
 /** Weighted pick from `[value, weight]` pairs. */
-function weightedPick<T>(entries: ReadonlyArray<readonly [T, number]>): T {
-  const total = entries.reduce((sum, [, weight]) => sum + weight, 0);
-  let threshold = rng() * total;
-  for (const [value, weight] of entries) {
-    threshold -= weight;
-    if (threshold <= 0) {
-      return value;
-    }
-  }
-  const last = entries[entries.length - 1];
-  if (!last) {
-    throw new Error('weightedPick() called with no entries.');
-  }
-  return last[0];
+function pickWeighted<T>(entries: ReadonlyArray<readonly [T, number]>): T {
+  return faker.helpers.weightedArrayElement(entries.map(([value, weight]) => ({ value, weight })));
 }
 
-/** A date `daysAgo` days before now (with an optional intra-day offset). */
-function daysAgo(days: number): Date {
-  const millis = Date.now() - days * 24 * 60 * 60 * 1000 - randInt(0, 23) * 60 * 60 * 1000;
-  return new Date(millis);
+/** The instant `days` days before the fixed reference date. */
+function daysBeforeReference(days: number): Date {
+  return new Date(REFERENCE_DATE.getTime() - days * MILLIS_PER_DAY);
+}
+
+/** A deterministic date uniformly between two instants (inclusive of bounds). */
+function dateBetween(from: Date, to: Date): Date {
+  if (from.getTime() >= to.getTime()) {
+    return new Date(from.getTime());
+  }
+  return faker.date.between({ from, to });
 }
 
 /** Inserts rows in fixed-size batches to avoid oversized single statements. */
@@ -160,169 +173,144 @@ async function insertInBatches<T>(
   rows: readonly T[],
   insert: (batch: T[]) => Promise<unknown>,
 ): Promise<void> {
-  for (let i = 0; i < rows.length; i += INSERT_BATCH_SIZE) {
-    await insert(rows.slice(i, i + INSERT_BATCH_SIZE));
+  for (let index = 0; index < rows.length; index += INSERT_BATCH_SIZE) {
+    await insert(rows.slice(index, index + INSERT_BATCH_SIZE));
   }
 }
 
+/** Reads a required value from a lookup map, throwing if the key is missing. */
+function requireId(lookup: ReadonlyMap<string, string>, key: string): string {
+  const value = lookup.get(key);
+  if (!value) {
+    throw new Error(`Seed lookup failed: no id found for "${key}".`);
+  }
+  return value;
+}
+
+async function hashPassword(plainText: string): Promise<string> {
+  return bcrypt.hash(plainText, BCRYPT_SALT_ROUNDS);
+}
+
+/**
+ * Mints a unique, human-readable email from a person's name. A monotonically
+ * increasing counter guarantees uniqueness even when names collide at scale.
+ */
+function createUniqueEmailFactory(domain: string): (firstName: string, lastName: string) => string {
+  const usedEmails = new Set<string>();
+  let counter = 0;
+  return (firstName: string, lastName: string): string => {
+    const localPart = toSlug(`${firstName} ${lastName}`).replace(/-/g, '.');
+    let email = `${localPart}@${domain}`;
+    while (usedEmails.has(email)) {
+      counter += 1;
+      email = `${localPart}.${counter}@${domain}`;
+    }
+    usedEmails.add(email);
+    return email;
+  };
+}
+
 // ---------------------------------------------------------------------------
-// Vocabulary pools (composed to avoid obvious repetition)
+// Vocabulary pools
 // ---------------------------------------------------------------------------
 
-const FIRST_NAMES: readonly string[] = [
-  'Priya',
-  'Rahul',
-  'Ananya',
-  'Mohammed',
-  'Sneha',
-  'Arjun',
-  'Kavya',
-  'Ishita',
-  'Rohan',
-  'Aditya',
-  'Neha',
-  'Vikram',
-  'Divya',
-  'Karan',
-  'Pooja',
-  'Siddharth',
-  'Meera',
-  'Aryan',
-  'Riya',
-  'Nikhil',
-  'Sanya',
-  'Harsh',
-  'Tanvi',
-  'Aman',
-  'Shreya',
-  'Varun',
-  'Aisha',
-  'Manish',
-  'Deepika',
-  'Rajesh',
-  'Anjali',
-  'Suresh',
-  'Nisha',
-  'Gaurav',
-  'Swati',
-  'Abhishek',
-  'Ritika',
-  'Sameer',
-  'Preeti',
-  'Yash',
-  'Farah',
-  'Imran',
-  'Zoya',
-  'Kabir',
-  'Lakshmi',
-  'Naveen',
-  'Ojas',
-  'Trisha',
-  'Uday',
-  'Vaishnavi',
+// Real-world tech hubs as "City, Region, Country" so locations read naturally.
+const WORLD_LOCATIONS: readonly string[] = [
+  'Bengaluru, Karnataka, India',
+  'Mumbai, Maharashtra, India',
+  'Pune, Maharashtra, India',
+  'Hyderabad, Telangana, India',
+  'Chennai, Tamil Nadu, India',
+  'Gurugram, Haryana, India',
+  'Noida, Uttar Pradesh, India',
+  'New Delhi, Delhi, India',
+  'Kolkata, West Bengal, India',
+  'Ahmedabad, Gujarat, India',
+  'Jaipur, Rajasthan, India',
+  'Kochi, Kerala, India',
+  'Singapore, Central Region, Singapore',
+  'London, England, United Kingdom',
+  'Berlin, Berlin, Germany',
+  'Amsterdam, North Holland, Netherlands',
+  'Dublin, Leinster, Ireland',
+  'Toronto, Ontario, Canada',
+  'San Francisco, California, United States',
+  'Seattle, Washington, United States',
+  'Austin, Texas, United States',
+  'New York, New York, United States',
+  'Sydney, New South Wales, Australia',
+  'Dubai, Dubai, United Arab Emirates',
 ];
 
-const LAST_NAMES: readonly string[] = [
-  'Sharma',
-  'Verma',
-  'Iyer',
-  'Khan',
-  'Reddy',
-  'Nair',
-  'Menon',
-  'Gupta',
-  'Patel',
-  'Desai',
-  'Deshmukh',
-  'Pillai',
-  'Rao',
-  'Singh',
-  'Chopra',
-  'Kapoor',
-  'Mehta',
-  'Joshi',
-  'Banerjee',
-  'Chatterjee',
-  'Mukherjee',
-  'Bose',
-  'Das',
-  'Ghosh',
-  'Kulkarni',
-  'Bhat',
-  'Shetty',
-  'Naidu',
-  'Pandey',
-  'Mishra',
-  'Agarwal',
-  'Jain',
-  'Malhotra',
-  'Sinha',
-  'Roy',
-  'Bhatt',
-  'Chauhan',
-  'Saxena',
-  'Trivedi',
-  'Prasad',
-];
+const REMOTE_LOCATION_LABEL = 'Remote';
 
-const LOCATIONS: readonly string[] = [
-  'Bengaluru, India',
-  'Mumbai, India',
-  'Pune, India',
-  'Hyderabad, India',
-  'Chennai, India',
-  'Gurgaon, India',
-  'Noida, India',
-  'Delhi, India',
-  'Kolkata, India',
-  'Ahmedabad, India',
-  'Jaipur, India',
-  'Kochi, India',
-  'Coimbatore, India',
-  'Indore, India',
-  'Chandigarh, India',
-  'Remote (India)',
-];
-
-const COLLEGES: readonly string[] = [
+const UNIVERSITIES: readonly string[] = [
   'Indian Institute of Technology, Bombay',
   'Indian Institute of Technology, Delhi',
   'Indian Institute of Technology, Madras',
   'Indian Institute of Technology, Kanpur',
-  'National Institute of Technology, Trichy',
+  'National Institute of Technology, Tiruchirappalli',
   'National Institute of Technology, Surathkal',
   'Birla Institute of Technology and Science, Pilani',
   'Delhi Technological University',
   'College of Engineering, Pune',
   'PES University',
-  'RV College of Engineering',
+  'R.V. College of Engineering',
   'Vellore Institute of Technology',
   'Manipal Institute of Technology',
   'Anna University',
-  'Veermata Jijabai Technological Institute',
   'Jadavpur University',
-  'Amrita School of Engineering',
-  'SRM Institute of Science and Technology',
-  'Thapar Institute of Engineering and Technology',
   'International Institute of Information Technology, Hyderabad',
-  'BMS College of Engineering',
-  'Netaji Subhas University of Technology',
   'Indian Institute of Science, Bengaluru',
-  'Symbiosis Institute of Technology',
-  'Christ University',
+  'Indian Institute of Technology, Kharagpur',
+  'Indian Institute of Technology, Roorkee',
+  'Stanford University',
+  'Massachusetts Institute of Technology',
+  'Carnegie Mellon University',
+  'University of California, Berkeley',
+  'University of Oxford',
+  'University of Cambridge',
+  'National University of Singapore',
+  'University of Toronto',
+  'Georgia Institute of Technology',
 ];
 
 const FIELDS_OF_STUDY: readonly string[] = [
   'Computer Science',
   'Information Technology',
   'Software Engineering',
-  'Electronics & Communication',
+  'Electronics & Communication Engineering',
   'Electrical Engineering',
   'Data Science',
   'Artificial Intelligence',
   'Computer Engineering',
   'Mathematics & Computing',
   'Information Systems',
+  'Machine Learning',
+  'Human-Computer Interaction',
+];
+
+const INDUSTRIES: readonly string[] = [
+  'Cloud Infrastructure',
+  'Financial Services',
+  'Healthcare Technology',
+  'Data & Analytics',
+  'E-commerce',
+  'Mobility & Transport',
+  'Media & Entertainment',
+  'AgriTech',
+  'EdTech',
+  'Payments',
+  'Artificial Intelligence',
+  'Gaming',
+  'CleanTech',
+  'Logistics',
+  'Enterprise Software',
+  'Cybersecurity',
+  'Telecommunications',
+  'HR Technology',
+  'Travel & Hospitality',
+  'Banking',
 ];
 
 // Fragments composed into non-repetitive candidate "about" text.
@@ -373,12 +361,36 @@ const JOB_CLOSINGS: readonly string[] = [
   'This is a great opportunity to grow your craft in a high-trust engineering environment.',
 ];
 
+const COVER_LETTERS: readonly string[] = [
+  'I am excited about this role and believe my experience is a strong match for the team.',
+  'This opportunity aligns closely with my skills and the kind of impact I want to have.',
+  'I have shipped similar systems before and would love to bring that experience to your team.',
+  'Your product resonates with me and I am confident I can contribute from day one.',
+  'I enjoy the problem space you are working in and would be thrilled to help you scale it.',
+];
+
+const HR_DESIGNATIONS: readonly string[] = [
+  'Recruiter',
+  'Senior Recruiter',
+  'Talent Acquisition Specialist',
+  'Talent Acquisition Lead',
+  'Technical Recruiter',
+  'HR Manager',
+  'People Operations Lead',
+  'Head of Talent',
+];
+
+const NOTICE_PERIOD_OPTIONS: readonly number[] = [0, 15, 30, 45, 60, 90];
+
+// ---------------------------------------------------------------------------
+// Role archetypes → drive coherent titles + skill sets for jobs and candidates
+// ---------------------------------------------------------------------------
+
 interface RoleTemplate {
   readonly base: string;
   readonly skillSlugs: readonly string[];
 }
 
-// Role archetypes; a seniority label is composed onto the base at generation time.
 const ROLE_TEMPLATES: readonly RoleTemplate[] = [
   {
     base: 'Frontend Engineer',
@@ -502,30 +514,60 @@ const SENIORITY_BY_LEVEL: Record<ExperienceLevel, readonly string[]> = {
 interface SalaryBand {
   readonly min: number;
   readonly max: number;
-  readonly minExp: number;
-  readonly maxExp: number;
+  readonly minExperienceYears: number;
+  readonly maxExperienceYears: number;
 }
 // Yearly INR bands, keyed by seniority.
 const SALARY_BY_LEVEL: Record<ExperienceLevel, SalaryBand> = {
-  [ExperienceLevel.INTERNSHIP]: { min: 300000, max: 720000, minExp: 0, maxExp: 1 },
-  [ExperienceLevel.ENTRY_LEVEL]: { min: 600000, max: 1200000, minExp: 0, maxExp: 2 },
-  [ExperienceLevel.MID_LEVEL]: { min: 1200000, max: 2500000, minExp: 2, maxExp: 6 },
-  [ExperienceLevel.SENIOR]: { min: 2500000, max: 4500000, minExp: 5, maxExp: 10 },
-  [ExperienceLevel.LEAD]: { min: 4000000, max: 6500000, minExp: 8, maxExp: 14 },
-  [ExperienceLevel.EXECUTIVE]: { min: 6000000, max: 12000000, minExp: 10, maxExp: 20 },
+  [ExperienceLevel.INTERNSHIP]: {
+    min: 300000,
+    max: 720000,
+    minExperienceYears: 0,
+    maxExperienceYears: 1,
+  },
+  [ExperienceLevel.ENTRY_LEVEL]: {
+    min: 600000,
+    max: 1200000,
+    minExperienceYears: 0,
+    maxExperienceYears: 2,
+  },
+  [ExperienceLevel.MID_LEVEL]: {
+    min: 1200000,
+    max: 2500000,
+    minExperienceYears: 2,
+    maxExperienceYears: 6,
+  },
+  [ExperienceLevel.SENIOR]: {
+    min: 2500000,
+    max: 4500000,
+    minExperienceYears: 5,
+    maxExperienceYears: 10,
+  },
+  [ExperienceLevel.LEAD]: {
+    min: 4000000,
+    max: 6500000,
+    minExperienceYears: 8,
+    maxExperienceYears: 14,
+  },
+  [ExperienceLevel.EXECUTIVE]: {
+    min: 6000000,
+    max: 12000000,
+    minExperienceYears: 10,
+    maxExperienceYears: 20,
+  },
 };
 
 const DEGREE_BY_LEVEL: Record<EducationLevel, string> = {
-  [EducationLevel.HIGH_SCHOOL]: 'Higher Secondary',
-  [EducationLevel.DIPLOMA]: 'Diploma',
-  [EducationLevel.BACHELORS]: 'B.Tech',
-  [EducationLevel.MASTERS]: 'M.Tech',
-  [EducationLevel.DOCTORATE]: 'Ph.D.',
-  [EducationLevel.OTHER]: 'Certificate',
+  [EducationLevel.HIGH_SCHOOL]: 'Higher Secondary Certificate',
+  [EducationLevel.DIPLOMA]: 'Diploma in Engineering',
+  [EducationLevel.BACHELORS]: 'Bachelor of Technology',
+  [EducationLevel.MASTERS]: 'Master of Technology',
+  [EducationLevel.DOCTORATE]: 'Doctor of Philosophy',
+  [EducationLevel.OTHER]: 'Professional Certificate',
 };
 
 // ---------------------------------------------------------------------------
-// Reference data: companies + skills
+// Reference data: curated companies (seed the world; more are generated later)
 // ---------------------------------------------------------------------------
 
 interface CompanyDef {
@@ -536,183 +578,198 @@ interface CompanyDef {
   readonly location: string;
 }
 
-const COMPANY_DEFS: readonly CompanyDef[] = [
+// Curated anchors. `acme-cloud`, `fintrek`, `healthsync` and `dataforge` MUST
+// remain because the preserved demo HR accounts recruit for them.
+const CURATED_COMPANIES: readonly CompanyDef[] = [
   {
     name: 'Acme Cloud',
     slug: 'acme-cloud',
     industry: 'Cloud Infrastructure',
     size: CompanySize.LARGE,
-    location: 'Bengaluru, India',
+    location: 'Bengaluru, Karnataka, India',
   },
   {
     name: 'Fintrek',
     slug: 'fintrek',
     industry: 'Financial Services',
     size: CompanySize.MEDIUM,
-    location: 'Mumbai, India',
+    location: 'Mumbai, Maharashtra, India',
   },
   {
     name: 'HealthSync',
     slug: 'healthsync',
     industry: 'Healthcare Technology',
     size: CompanySize.MEDIUM,
-    location: 'Pune, India',
+    location: 'Pune, Maharashtra, India',
   },
   {
     name: 'DataForge',
     slug: 'dataforge',
     industry: 'Data & Analytics',
     size: CompanySize.STARTUP,
-    location: 'Remote (India)',
+    location: 'Remote',
   },
   {
     name: 'Nimbus Retail',
     slug: 'nimbus-retail',
     industry: 'E-commerce',
     size: CompanySize.LARGE,
-    location: 'Bengaluru, India',
+    location: 'Bengaluru, Karnataka, India',
   },
   {
     name: 'Voltride Mobility',
     slug: 'voltride-mobility',
     industry: 'Mobility & Transport',
     size: CompanySize.MEDIUM,
-    location: 'Gurgaon, India',
+    location: 'Gurugram, Haryana, India',
   },
   {
     name: 'Lumen Media',
     slug: 'lumen-media',
     industry: 'Media & Entertainment',
     size: CompanySize.MEDIUM,
-    location: 'Mumbai, India',
+    location: 'Mumbai, Maharashtra, India',
   },
   {
     name: 'AgriNova',
     slug: 'agrinova',
     industry: 'AgriTech',
     size: CompanySize.SMALL,
-    location: 'Hyderabad, India',
+    location: 'Hyderabad, Telangana, India',
   },
   {
     name: 'EduSpark',
     slug: 'eduspark',
     industry: 'EdTech',
     size: CompanySize.MEDIUM,
-    location: 'Bengaluru, India',
+    location: 'Bengaluru, Karnataka, India',
   },
   {
     name: 'SecurePay',
     slug: 'securepay',
     industry: 'Payments',
     size: CompanySize.LARGE,
-    location: 'Chennai, India',
+    location: 'Chennai, Tamil Nadu, India',
   },
   {
     name: 'CloudKart',
     slug: 'cloudkart',
     industry: 'E-commerce',
     size: CompanySize.ENTERPRISE,
-    location: 'Bengaluru, India',
+    location: 'Bengaluru, Karnataka, India',
   },
   {
     name: 'Meridian Labs',
     slug: 'meridian-labs',
     industry: 'Artificial Intelligence',
     size: CompanySize.STARTUP,
-    location: 'Remote (India)',
+    location: 'Remote',
   },
   {
     name: 'Skyline Games',
     slug: 'skyline-games',
     industry: 'Gaming',
     size: CompanySize.SMALL,
-    location: 'Pune, India',
+    location: 'Pune, Maharashtra, India',
   },
   {
     name: 'GreenGrid Energy',
     slug: 'greengrid-energy',
     industry: 'CleanTech',
     size: CompanySize.MEDIUM,
-    location: 'Ahmedabad, India',
+    location: 'Ahmedabad, Gujarat, India',
   },
   {
     name: 'Trailhead Logistics',
     slug: 'trailhead-logistics',
     industry: 'Logistics',
     size: CompanySize.LARGE,
-    location: 'Noida, India',
+    location: 'Noida, Uttar Pradesh, India',
   },
   {
     name: 'Beacon Health',
     slug: 'beacon-health',
     industry: 'Healthcare Technology',
     size: CompanySize.SMALL,
-    location: 'Kochi, India',
+    location: 'Kochi, Kerala, India',
   },
   {
     name: 'Quantex Systems',
     slug: 'quantex-systems',
     industry: 'Enterprise Software',
     size: CompanySize.ENTERPRISE,
-    location: 'Hyderabad, India',
+    location: 'Hyderabad, Telangana, India',
   },
   {
     name: 'Pixelbloom Studio',
     slug: 'pixelbloom-studio',
-    industry: 'Design & Creative',
+    industry: 'Media & Entertainment',
     size: CompanySize.STARTUP,
-    location: 'Bengaluru, India',
+    location: 'Bengaluru, Karnataka, India',
   },
   {
     name: 'Orbit Telecom',
     slug: 'orbit-telecom',
     industry: 'Telecommunications',
     size: CompanySize.LARGE,
-    location: 'Delhi, India',
+    location: 'New Delhi, Delhi, India',
   },
   {
     name: 'BrightHire HR',
     slug: 'brighthire-hr',
     industry: 'HR Technology',
     size: CompanySize.MEDIUM,
-    location: 'Gurgaon, India',
+    location: 'Gurugram, Haryana, India',
   },
   {
     name: 'Cobalt Security',
     slug: 'cobalt-security',
     industry: 'Cybersecurity',
     size: CompanySize.MEDIUM,
-    location: 'Bengaluru, India',
+    location: 'Bengaluru, Karnataka, India',
   },
   {
     name: 'Harborview Travel',
     slug: 'harborview-travel',
     industry: 'Travel & Hospitality',
     size: CompanySize.SMALL,
-    location: 'Jaipur, India',
+    location: 'Jaipur, Rajasthan, India',
   },
   {
     name: 'Northwind Bank',
     slug: 'northwind-bank',
     industry: 'Banking',
     size: CompanySize.ENTERPRISE,
-    location: 'Mumbai, India',
+    location: 'Mumbai, Maharashtra, India',
   },
   {
     name: 'Zephyr Analytics',
     slug: 'zephyr-analytics',
     industry: 'Data & Analytics',
     size: CompanySize.STARTUP,
-    location: 'Remote (India)',
+    location: 'Remote',
   },
 ];
+
+const COMPANY_SIZE_WEIGHTS: ReadonlyArray<readonly [CompanySize, number]> = [
+  [CompanySize.STARTUP, 3],
+  [CompanySize.SMALL, 3],
+  [CompanySize.MEDIUM, 4],
+  [CompanySize.LARGE, 3],
+  [CompanySize.ENTERPRISE, 2],
+];
+
+// ---------------------------------------------------------------------------
+// Reference data: skills (~300 unique, deduplicated by slug)
+// ---------------------------------------------------------------------------
 
 interface SkillDef {
   readonly name: string;
   readonly slug: string;
 }
 
-// The original 20 skills — slugs MUST stay identical (the frontend depends on them).
+// The original 20 skills — slugs MUST stay identical (the frontend depends on
+// them). Kept first so their explicit slugs always win during deduplication.
 const CORE_SKILLS: readonly SkillDef[] = [
   { name: 'React', slug: 'react' },
   { name: 'TypeScript', slug: 'typescript' },
@@ -736,95 +793,409 @@ const CORE_SKILLS: readonly SkillDef[] = [
   { name: 'System Design', slug: 'system-design' },
 ];
 
-// 85 additional realistic tech / data / design / product skills (unique slugs).
-const EXTRA_SKILLS: readonly SkillDef[] = [
-  { name: 'Vue.js', slug: 'vuejs' },
-  { name: 'Angular', slug: 'angular' },
-  { name: 'Svelte', slug: 'svelte' },
+// Curated skills referenced by ROLE_TEMPLATES (explicit slugs guaranteed).
+const ROLE_SKILLS: readonly SkillDef[] = [
   { name: 'Redux', slug: 'redux' },
   { name: 'HTML5', slug: 'html5' },
   { name: 'CSS3', slug: 'css3' },
-  { name: 'Sass', slug: 'sass' },
-  { name: 'Webpack', slug: 'webpack' },
-  { name: 'Vite', slug: 'vite' },
-  { name: 'React Native', slug: 'react-native' },
   { name: 'NestJS', slug: 'nestjs' },
-  { name: 'FastAPI', slug: 'fastapi' },
-  { name: 'Flask', slug: 'flask' },
-  { name: 'Ruby on Rails', slug: 'ruby-on-rails' },
-  { name: 'Laravel', slug: 'laravel' },
-  { name: 'ASP.NET', slug: 'dotnet' },
-  { name: 'C#', slug: 'csharp' },
-  { name: 'C++', slug: 'cpp' },
-  { name: 'Rust', slug: 'rust' },
-  { name: 'Kotlin', slug: 'kotlin' },
-  { name: 'Swift', slug: 'swift' },
-  { name: 'SwiftUI', slug: 'swiftui' },
-  { name: 'Jetpack Compose', slug: 'jetpack-compose' },
-  { name: 'Android', slug: 'android' },
-  { name: 'iOS', slug: 'ios' },
-  { name: 'Scala', slug: 'scala' },
-  { name: 'PHP', slug: 'php' },
-  { name: 'Ruby', slug: 'ruby' },
-  { name: 'MySQL', slug: 'mysql' },
-  { name: 'MongoDB', slug: 'mongodb' },
-  { name: 'Cassandra', slug: 'cassandra' },
-  { name: 'Elasticsearch', slug: 'elasticsearch' },
-  { name: 'SQL Server', slug: 'sql-server' },
-  { name: 'SQL', slug: 'sql' },
-  { name: 'Snowflake', slug: 'snowflake' },
-  { name: 'dbt', slug: 'dbt' },
-  { name: 'Apache Kafka', slug: 'kafka' },
-  { name: 'Apache Spark', slug: 'spark' },
-  { name: 'Apache Airflow', slug: 'airflow' },
-  { name: 'Hadoop', slug: 'hadoop' },
-  { name: 'Data Modeling', slug: 'data-modeling' },
-  { name: 'Terraform', slug: 'terraform' },
-  { name: 'Ansible', slug: 'ansible' },
-  { name: 'Jenkins', slug: 'jenkins' },
-  { name: 'CI/CD', slug: 'ci-cd' },
-  { name: 'GitHub Actions', slug: 'github-actions' },
-  { name: 'Prometheus', slug: 'prometheus' },
-  { name: 'Grafana', slug: 'grafana' },
-  { name: 'Linux', slug: 'linux' },
-  { name: 'gRPC', slug: 'grpc' },
   { name: 'REST APIs', slug: 'rest-api' },
   { name: 'Microservices', slug: 'microservices' },
-  { name: 'Architecture', slug: 'architecture' },
-  { name: 'GCP', slug: 'gcp' },
-  { name: 'Azure', slug: 'azure' },
-  { name: 'Celery', slug: 'celery' },
+  { name: 'Terraform', slug: 'terraform' },
+  { name: 'CI/CD', slug: 'ci-cd' },
+  { name: 'Linux', slug: 'linux' },
+  { name: 'Ansible', slug: 'ansible' },
+  { name: 'Prometheus', slug: 'prometheus' },
+  { name: 'Grafana', slug: 'grafana' },
+  { name: 'Apache Spark', slug: 'spark' },
+  { name: 'Apache Airflow', slug: 'airflow' },
+  { name: 'Apache Kafka', slug: 'kafka' },
+  { name: 'SQL', slug: 'sql' },
   { name: 'Pandas', slug: 'pandas' },
-  { name: 'NumPy', slug: 'numpy' },
   { name: 'scikit-learn', slug: 'scikit-learn' },
   { name: 'TensorFlow', slug: 'tensorflow' },
-  { name: 'PyTorch', slug: 'pytorch' },
-  { name: 'Machine Learning', slug: 'machine-learning' },
-  { name: 'Deep Learning', slug: 'deep-learning' },
-  { name: 'MLOps', slug: 'mlops' },
   { name: 'Statistics', slug: 'statistics' },
+  { name: 'Machine Learning', slug: 'machine-learning' },
+  { name: 'PyTorch', slug: 'pytorch' },
+  { name: 'MLOps', slug: 'mlops' },
+  { name: 'Kotlin', slug: 'kotlin' },
+  { name: 'Android', slug: 'android' },
+  { name: 'Jetpack Compose', slug: 'jetpack-compose' },
+  { name: 'Swift', slug: 'swift' },
+  { name: 'iOS', slug: 'ios' },
+  { name: 'SwiftUI', slug: 'swiftui' },
+  { name: 'React Native', slug: 'react-native' },
   { name: 'Selenium', slug: 'selenium' },
   { name: 'Cypress', slug: 'cypress' },
   { name: 'Playwright', slug: 'playwright' },
   { name: 'Jest', slug: 'jest' },
   { name: 'Test Automation', slug: 'test-automation' },
-  { name: 'Cryptography', slug: 'cryptography' },
   { name: 'Security', slug: 'security' },
-  { name: 'Figma', slug: 'figma' },
-  { name: 'UI Design', slug: 'ui-design' },
-  { name: 'UX Research', slug: 'ux-research' },
-  { name: 'User Research', slug: 'user-research' },
-  { name: 'Usability Testing', slug: 'usability-testing' },
-  { name: 'Prototyping', slug: 'prototyping' },
-  { name: 'Design Systems', slug: 'design-systems' },
+  { name: 'Cryptography', slug: 'cryptography' },
   { name: 'Product Strategy', slug: 'product-strategy' },
   { name: 'Roadmapping', slug: 'roadmapping' },
   { name: 'Agile', slug: 'agile' },
-  { name: 'Leadership', slug: 'leadership' },
   { name: 'Analytics', slug: 'analytics' },
+  { name: 'User Research', slug: 'user-research' },
+  { name: 'Figma', slug: 'figma' },
+  { name: 'UI Design', slug: 'ui-design' },
+  { name: 'UX Research', slug: 'ux-research' },
+  { name: 'Prototyping', slug: 'prototyping' },
+  { name: 'Design Systems', slug: 'design-systems' },
+  { name: 'Usability Testing', slug: 'usability-testing' },
+  { name: 'Leadership', slug: 'leadership' },
+  { name: 'Architecture', slug: 'architecture' },
+  { name: 'FastAPI', slug: 'fastapi' },
+  { name: 'Celery', slug: 'celery' },
+  { name: 'gRPC', slug: 'grpc' },
+  { name: 'ASP.NET', slug: 'dotnet' },
+  { name: 'C#', slug: 'csharp' },
+  { name: 'Azure', slug: 'azure' },
+  { name: 'SQL Server', slug: 'sql-server' },
+  { name: 'GCP', slug: 'gcp' },
+  { name: 'dbt', slug: 'dbt' },
+  { name: 'Snowflake', slug: 'snowflake' },
+  { name: 'Data Modeling', slug: 'data-modeling' },
 ];
 
-const ALL_SKILLS: readonly SkillDef[] = [...CORE_SKILLS, ...EXTRA_SKILLS];
+// A broad catalogue of additional realistic tech, data, tooling and soft
+// skills. Slugs are derived and deduplicated at build time.
+const ADDITIONAL_SKILL_NAMES: readonly string[] = [
+  // Languages
+  'Vue.js',
+  'Angular',
+  'Svelte',
+  'SolidJS',
+  'Rust',
+  'C++',
+  'Scala',
+  'PHP',
+  'Ruby',
+  'Elixir',
+  'Erlang',
+  'Clojure',
+  'Haskell',
+  'F#',
+  'Objective-C',
+  'Dart',
+  'Groovy',
+  'Perl',
+  'Lua',
+  'R',
+  'Julia',
+  'MATLAB',
+  'Solidity',
+  'Bash',
+  'PowerShell',
+  'Zig',
+  'Assembly',
+  'COBOL',
+  'Visual Basic .NET',
+  'OCaml',
+  // Frontend frameworks & libraries
+  'Remix',
+  'Astro',
+  'Qwik',
+  'Nuxt.js',
+  'Gatsby',
+  'Ember.js',
+  'Backbone.js',
+  'jQuery',
+  'Bootstrap',
+  'Material UI',
+  'Chakra UI',
+  'Ant Design',
+  'Styled Components',
+  'Emotion',
+  'Sass',
+  'Less',
+  'Storybook',
+  'Framer Motion',
+  'Three.js',
+  'D3.js',
+  'WebGL',
+  'Progressive Web Apps',
+  'Web Components',
+  'Zustand',
+  'MobX',
+  'RxJS',
+  'Recoil',
+  'React Query',
+  'Webpack',
+  'Vite',
+  'Rollup',
+  'Babel',
+  'ESLint',
+  'Prettier',
+  // Backend frameworks
+  'Koa',
+  'Fastify',
+  'Hapi',
+  'Flask',
+  'Ruby on Rails',
+  'Laravel',
+  'Symfony',
+  'Gin',
+  'Echo',
+  'Fiber',
+  'Actix',
+  'Phoenix',
+  'Micronaut',
+  'Quarkus',
+  'Ktor',
+  'Vert.x',
+  'Sinatra',
+  'Tornado',
+  'Sanic',
+  // Databases & data stores
+  'MySQL',
+  'MariaDB',
+  'SQLite',
+  'MongoDB',
+  'Cassandra',
+  'DynamoDB',
+  'CouchDB',
+  'Neo4j',
+  'Elasticsearch',
+  'InfluxDB',
+  'TimescaleDB',
+  'CockroachDB',
+  'ClickHouse',
+  'BigQuery',
+  'Amazon Redshift',
+  'Oracle Database',
+  'Firebase',
+  'Supabase',
+  'Memcached',
+  'RabbitMQ',
+  'NATS',
+  'Apache Pulsar',
+  'HashiCorp Vault',
+  'Consul',
+  // Cloud & DevOps
+  'Google Cloud Platform',
+  'DigitalOcean',
+  'Heroku',
+  'Vercel',
+  'Netlify',
+  'Cloudflare',
+  'OpenShift',
+  'HashiCorp Nomad',
+  'Helm',
+  'Argo CD',
+  'Istio',
+  'Envoy',
+  'Packer',
+  'Vagrant',
+  'CircleCI',
+  'GitLab CI',
+  'GitHub Actions',
+  'Jenkins',
+  'TeamCity',
+  'Datadog',
+  'New Relic',
+  'Splunk',
+  'Elastic Stack',
+  'Kibana',
+  'Logstash',
+  'Fluentd',
+  'OpenTelemetry',
+  'PagerDuty',
+  'Sentry',
+  'Nagios',
+  // Data & machine learning
+  'Keras',
+  'XGBoost',
+  'LightGBM',
+  'Hugging Face',
+  'LangChain',
+  'OpenCV',
+  'NLTK',
+  'spaCy',
+  'NumPy',
+  'Matplotlib',
+  'Seaborn',
+  'Plotly',
+  'Tableau',
+  'Power BI',
+  'Looker',
+  'Metabase',
+  'Apache Flink',
+  'Apache Beam',
+  'Presto',
+  'Trino',
+  'Databricks',
+  'MLflow',
+  'Kubeflow',
+  'Amazon SageMaker',
+  'Feature Engineering',
+  'Data Warehousing',
+  'ETL Pipelines',
+  'Reinforcement Learning',
+  'Natural Language Processing',
+  'Computer Vision',
+  'Time Series Analysis',
+  'A/B Testing',
+  'Data Visualization',
+  'Big Data',
+  'Apache Hadoop',
+  'Deep Learning',
+  'Recommendation Systems',
+  // Mobile
+  'Flutter',
+  'Xamarin',
+  'Ionic',
+  'Apache Cordova',
+  'Expo',
+  'Core Data',
+  'RxSwift',
+  'Coroutines',
+  // Testing & QA
+  'Mocha',
+  'Chai',
+  'Jasmine',
+  'Vitest',
+  'Testing Library',
+  'JUnit',
+  'TestNG',
+  'PyTest',
+  'RSpec',
+  'Cucumber',
+  'Postman',
+  'JMeter',
+  'Appium',
+  'Robot Framework',
+  'Contract Testing',
+  'Performance Testing',
+  'Regression Testing',
+  'Test-Driven Development',
+  'Behavior-Driven Development',
+  // Security
+  'OAuth 2.0',
+  'OpenID Connect',
+  'SAML',
+  'JSON Web Tokens',
+  'Penetration Testing',
+  'OWASP',
+  'TLS',
+  'Identity and Access Management',
+  'Vulnerability Assessment',
+  'Secure Coding',
+  'Zero Trust',
+  // Architecture & practices
+  'Domain-Driven Design',
+  'Event-Driven Architecture',
+  'Serverless',
+  'API Gateway',
+  'Message Queues',
+  'WebSockets',
+  'Distributed Systems',
+  'Concurrency',
+  'Caching Strategies',
+  'Observability',
+  'Infrastructure as Code',
+  'Site Reliability Engineering',
+  'Git',
+  'GitHub',
+  'GitLab',
+  'Bitbucket',
+  'Jira',
+  'Confluence',
+  'Trello',
+  'Notion',
+  'Scrum',
+  'Kanban',
+  'Pair Programming',
+  'Code Review',
+  'Continuous Integration',
+  'Continuous Delivery',
+  // Product & design
+  'Wireframing',
+  'User Personas',
+  'Journey Mapping',
+  'Information Architecture',
+  'Interaction Design',
+  'Motion Design',
+  'Accessibility',
+  'Responsive Design',
+  'Design Thinking',
+  'Product Analytics',
+  'Go-to-Market Strategy',
+  'Competitive Analysis',
+  'Backlog Management',
+  'Sprint Planning',
+  'OKRs',
+  'Stakeholder Management',
+  'Market Research',
+  'Adobe XD',
+  'Sketch',
+  // Soft skills
+  'Communication',
+  'Teamwork',
+  'Problem Solving',
+  'Critical Thinking',
+  'Time Management',
+  'Adaptability',
+  'Collaboration',
+  'Mentoring',
+  'Conflict Resolution',
+  'Negotiation',
+  'Presentation Skills',
+  'Public Speaking',
+  'Emotional Intelligence',
+  'Decision Making',
+  'Creativity',
+  'Attention to Detail',
+  'Ownership',
+  'Accountability',
+  'Strategic Thinking',
+  'Cross-functional Leadership',
+  // Domains
+  'Fintech',
+  'Blockchain',
+  'Web3',
+  'Internet of Things',
+  'Augmented Reality',
+  'Virtual Reality',
+  'Robotics',
+  'Cloud Computing',
+  'Networking',
+  'Operating Systems',
+  'Compilers',
+  'Embedded Systems',
+  'Computer Graphics',
+  'Cryptocurrency',
+  'SaaS',
+  'Data Governance',
+];
+
+// Explicit slugs for symbol-heavy names that would otherwise slugify poorly.
+const SKILL_SLUG_OVERRIDES: Readonly<Record<string, string>> = {
+  'C++': 'cpp',
+  'F#': 'fsharp',
+};
+
+/** Builds the deduplicated skill catalogue (curated slugs win) up to the target. */
+function buildSkillCatalogue(): SkillDef[] {
+  const skillsBySlug = new Map<string, SkillDef>();
+  const addSkill = (skill: SkillDef): void => {
+    if (skill.slug.length > 0 && !skillsBySlug.has(skill.slug)) {
+      skillsBySlug.set(skill.slug, skill);
+    }
+  };
+
+  for (const skill of [...CORE_SKILLS, ...ROLE_SKILLS]) {
+    addSkill(skill);
+  }
+  for (const name of ADDITIONAL_SKILL_NAMES) {
+    addSkill({ name, slug: SKILL_SLUG_OVERRIDES[name] ?? toSlug(name) });
+  }
+
+  return [...skillsBySlug.values()].slice(0, TARGET_SKILLS);
+}
+
+const SKILL_CATALOGUE: readonly SkillDef[] = buildSkillCatalogue();
+const ALL_SKILL_SLUGS: readonly string[] = SKILL_CATALOGUE.map((skill) => skill.slug);
 
 // ---------------------------------------------------------------------------
 // Named demo accounts (preserved exactly — documented logins keep working)
@@ -843,13 +1214,12 @@ interface NamedCandidate {
   readonly skillSlugs: readonly string[];
 }
 
-// The primary candidate (candidate@test.com / Candidate@1234).
 const PRIMARY_CANDIDATE: NamedCandidate = {
   email: PRIMARY_CANDIDATE_EMAIL,
   firstName: 'Priya',
   lastName: 'Sharma',
   headline: 'Senior Full-Stack Engineer · React + Node.js',
-  currentLocation: 'Bengaluru, India',
+  currentLocation: 'Bengaluru, Karnataka, India',
   currentCompany: 'Techwave Solutions',
   currentTitle: 'Senior Software Engineer',
   totalExperienceMonths: 72,
@@ -857,14 +1227,13 @@ const PRIMARY_CANDIDATE: NamedCandidate = {
   skillSlugs: ['react', 'typescript', 'nodejs', 'express', 'postgresql', 'prisma', 'aws'],
 };
 
-// Named secondary candidates (…@test.com / Password@123) from the original seed.
 const NAMED_CANDIDATES: readonly NamedCandidate[] = [
   {
     email: 'rahul.verma@test.com',
     firstName: 'Rahul',
     lastName: 'Verma',
     headline: 'Backend Engineer · Node.js & PostgreSQL',
-    currentLocation: 'Pune, India',
+    currentLocation: 'Pune, Maharashtra, India',
     currentCompany: 'Infosys',
     currentTitle: 'Software Engineer',
     totalExperienceMonths: 48,
@@ -876,7 +1245,7 @@ const NAMED_CANDIDATES: readonly NamedCandidate[] = [
     firstName: 'Ananya',
     lastName: 'Iyer',
     headline: 'Frontend Engineer · React & TypeScript',
-    currentLocation: 'Bengaluru, India',
+    currentLocation: 'Bengaluru, Karnataka, India',
     currentCompany: 'Flipkart',
     currentTitle: 'Frontend Engineer',
     totalExperienceMonths: 36,
@@ -888,7 +1257,7 @@ const NAMED_CANDIDATES: readonly NamedCandidate[] = [
     firstName: 'Mohammed',
     lastName: 'Khan',
     headline: 'Platform Engineer · Kubernetes & AWS',
-    currentLocation: 'Hyderabad, India',
+    currentLocation: 'Hyderabad, Telangana, India',
     currentCompany: 'Amazon',
     currentTitle: 'Systems Development Engineer',
     totalExperienceMonths: 84,
@@ -900,7 +1269,7 @@ const NAMED_CANDIDATES: readonly NamedCandidate[] = [
     firstName: 'Sneha',
     lastName: 'Reddy',
     headline: 'Junior Full-Stack Developer',
-    currentLocation: 'Chennai, India',
+    currentLocation: 'Chennai, Tamil Nadu, India',
     currentCompany: 'Zoho',
     currentTitle: 'Associate Software Engineer',
     totalExperienceMonths: 14,
@@ -912,7 +1281,7 @@ const NAMED_CANDIDATES: readonly NamedCandidate[] = [
     firstName: 'Arjun',
     lastName: 'Nair',
     headline: 'Data Engineer · Python & Analytics',
-    currentLocation: 'Bengaluru, India',
+    currentLocation: 'Bengaluru, Karnataka, India',
     currentCompany: 'Swiggy',
     currentTitle: 'Data Engineer',
     totalExperienceMonths: 60,
@@ -924,7 +1293,7 @@ const NAMED_CANDIDATES: readonly NamedCandidate[] = [
     firstName: 'Kavya',
     lastName: 'Menon',
     headline: 'Backend Engineer · Java & Spring Boot',
-    currentLocation: 'Mumbai, India',
+    currentLocation: 'Mumbai, Maharashtra, India',
     currentCompany: 'ICICI Bank',
     currentTitle: 'Senior Engineer',
     totalExperienceMonths: 96,
@@ -936,7 +1305,7 @@ const NAMED_CANDIDATES: readonly NamedCandidate[] = [
     firstName: 'Ishita',
     lastName: 'Gupta',
     headline: 'Full-Stack Engineer · Next.js & Node.js',
-    currentLocation: 'Gurgaon, India',
+    currentLocation: 'Gurugram, Haryana, India',
     currentCompany: 'Paytm',
     currentTitle: 'Software Engineer II',
     totalExperienceMonths: 54,
@@ -945,7 +1314,6 @@ const NAMED_CANDIDATES: readonly NamedCandidate[] = [
   },
 ];
 
-// Named secondary HR accounts (…@test.com / Password@123) from the original seed.
 interface NamedHr {
   readonly email: string;
   readonly firstName: string;
@@ -953,6 +1321,7 @@ interface NamedHr {
   readonly companySlug: string;
   readonly designation: string;
 }
+
 const NAMED_HR: readonly NamedHr[] = [
   {
     email: 'hr.fintrek@test.com',
@@ -977,36 +1346,8 @@ const NAMED_HR: readonly NamedHr[] = [
   },
 ];
 
-const HR_DESIGNATIONS: readonly string[] = [
-  'Recruiter',
-  'Senior Recruiter',
-  'Talent Acquisition Specialist',
-  'Talent Acquisition Lead',
-  'Technical Recruiter',
-  'HR Manager',
-  'People Operations Lead',
-  'Head of Talent',
-];
-
 // ---------------------------------------------------------------------------
-// Lookup helpers
-// ---------------------------------------------------------------------------
-
-/** Reads a required value from a lookup map, throwing if the key is missing. */
-function requireId(lookup: Map<string, string>, key: string): string {
-  const value = lookup.get(key);
-  if (!value) {
-    throw new Error(`Seed lookup failed: no id found for "${key}".`);
-  }
-  return value;
-}
-
-async function hashPassword(plainText: string): Promise<string> {
-  return bcrypt.hash(plainText, BCRYPT_SALT_ROUNDS);
-}
-
-// ---------------------------------------------------------------------------
-// Cleanup (FK-safe order) — extends the original approach.
+// Cleanup (FK-safe order: children before parents)
 // ---------------------------------------------------------------------------
 
 async function clearDatabase(): Promise<void> {
@@ -1024,67 +1365,93 @@ async function clearDatabase(): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// Reference data
+// Reference data seeding
 // ---------------------------------------------------------------------------
 
-async function seedCompanies(): Promise<Map<string, string>> {
+function buildCompanyDefs(): CompanyDef[] {
+  const defs: CompanyDef[] = [...CURATED_COMPANIES];
+  const usedSlugs = new Set(defs.map((company) => company.slug));
+
+  while (defs.length < TARGET_COMPANIES) {
+    const name = faker.company.name();
+    const baseSlug = toSlug(name);
+    let slug = baseSlug;
+    while (usedSlugs.has(slug)) {
+      slug = `${baseSlug}-${randomInt(1, 999)}`;
+    }
+    usedSlugs.add(slug);
+    defs.push({
+      name,
+      slug,
+      industry: pickOne(INDUSTRIES),
+      size: pickWeighted(COMPANY_SIZE_WEIGHTS),
+      location: chance(0.2) ? REMOTE_LOCATION_LABEL : pickOne(WORLD_LOCATIONS),
+    });
+  }
+
+  return defs;
+}
+
+async function seedCompanies(companyDefs: readonly CompanyDef[]): Promise<Map<string, string>> {
   const companyIdBySlug = new Map<string, string>();
-  const rows: Prisma.CompanyCreateManyInput[] = COMPANY_DEFS.map((company) => {
-    const id = randomUUID();
+  const rows: Prisma.CompanyCreateManyInput[] = companyDefs.map((company) => {
+    const id = newId();
     companyIdBySlug.set(company.slug, id);
+    const createdAt = dateBetween(
+      daysBeforeReference(EARLIEST_ACTIVITY_DAYS_AGO),
+      daysBeforeReference(120),
+    );
+    const readableSize = company.size.toLowerCase();
     return {
       id,
       name: company.name,
       slug: company.slug,
       website: `https://${company.slug}.example.com`,
       logoUrl: `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(company.name)}`,
-      about: `${company.name} is a ${company.size.toLowerCase()} ${company.industry.toLowerCase()} company headquartered in ${company.location}, building products loved by their customers.`,
+      about: `${company.name} is a ${readableSize} ${company.industry.toLowerCase()} company based in ${company.location}. ${faker.company.catchPhrase()}.`,
       industry: company.industry,
       size: company.size,
       location: company.location,
+      createdAt,
+      updatedAt: createdAt,
     };
   });
-  await prisma.company.createMany({ data: rows });
+  await insertInBatches(rows, (batch) => prisma.company.createMany({ data: batch }));
   return companyIdBySlug;
 }
 
 async function seedSkills(): Promise<Map<string, string>> {
   const skillIdBySlug = new Map<string, string>();
-  const rows: Prisma.SkillCreateManyInput[] = ALL_SKILLS.map((skill) => {
-    const id = randomUUID();
+  const rows: Prisma.SkillCreateManyInput[] = SKILL_CATALOGUE.map((skill) => {
+    const id = newId();
     skillIdBySlug.set(skill.slug, id);
     return { id, name: skill.name, slug: skill.slug };
   });
-  await prisma.skill.createMany({ data: rows });
+  await insertInBatches(rows, (batch) => prisma.skill.createMany({ data: batch }));
   return skillIdBySlug;
 }
 
 // ---------------------------------------------------------------------------
-// HR users
+// HR users (+ profiles)
 // ---------------------------------------------------------------------------
 
-interface HrRecord {
-  readonly userId: string;
-  readonly companySlug: string;
+interface HrSeedResult {
+  readonly primaryHrUserId: string;
+  readonly hrUserIdsByCompanySlug: Map<string, string[]>;
 }
 
-/**
- * Creates HR users: the primary admin, the named secondaries, then enough
- * generated recruiters to reach the target — each linked to a company so every
- * company has at least one HR owner. Returns the primary HR id and the full
- * roster grouped by company.
- */
-async function seedHrUsers(companyIdBySlug: Map<string, string>): Promise<{
-  primaryHrUserId: string;
-  hrUserIdsByCompanySlug: Map<string, string[]>;
-}> {
+async function seedHrUsers(
+  companyDefs: readonly CompanyDef[],
+  companyIdBySlug: ReadonlyMap<string, string>,
+): Promise<HrSeedResult> {
   const primaryHash = await hashPassword(PRIMARY_HR_PASSWORD);
   const demoHash = await hashPassword(DEMO_USER_PASSWORD);
+  const sharedHash = demoHash; // reuse one bcrypt hash for every generated HR account
 
+  const nextEmail = createUniqueEmailFactory(GENERATED_HR_EMAIL_DOMAIN);
   const userRows: Prisma.UserCreateManyInput[] = [];
   const profileRows: Prisma.HrProfileCreateManyInput[] = [];
-  const hrRecords: HrRecord[] = [];
-  const usedEmails = new Set<string>();
+  const hrUserIdsByCompanySlug = new Map<string, string[]>();
 
   const addHr = (params: {
     email: string;
@@ -1095,8 +1462,7 @@ async function seedHrUsers(companyIdBySlug: Map<string, string>): Promise<{
     designation: string;
     createdAt: Date;
   }): string => {
-    const userId = randomUUID();
-    usedEmails.add(params.email);
+    const userId = newId();
     userRows.push({
       id: userId,
       email: params.email,
@@ -1105,86 +1471,76 @@ async function seedHrUsers(companyIdBySlug: Map<string, string>): Promise<{
       lastName: params.lastName,
       role: UserRole.HR,
       createdAt: params.createdAt,
+      updatedAt: params.createdAt,
     });
     profileRows.push({
-      id: randomUUID(),
+      id: newId(),
       userId,
       companyId: requireId(companyIdBySlug, params.companySlug),
       designation: params.designation,
+      createdAt: params.createdAt,
+      updatedAt: params.createdAt,
     });
-    hrRecords.push({ userId, companySlug: params.companySlug });
+    const roster = hrUserIdsByCompanySlug.get(params.companySlug) ?? [];
+    roster.push(userId);
+    hrUserIdsByCompanySlug.set(params.companySlug, roster);
     return userId;
   };
 
-  // Primary HR — Acme Cloud.
+  const addGeneratedHr = (companySlug: string): void => {
+    const firstName = faker.person.firstName();
+    const lastName = faker.person.lastName();
+    addHr({
+      email: nextEmail(firstName, lastName),
+      passwordHash: sharedHash,
+      firstName,
+      lastName,
+      companySlug,
+      designation: pickOne(HR_DESIGNATIONS),
+      createdAt: dateBetween(
+        daysBeforeReference(EARLIEST_ACTIVITY_DAYS_AGO),
+        daysBeforeReference(90),
+      ),
+    });
+  };
+
+  // Primary HR (admin@test.com).
   const primaryHrUserId = addHr({
     email: PRIMARY_HR_EMAIL,
     passwordHash: primaryHash,
     firstName: 'Aisha',
     lastName: 'Khan',
-    companySlug: 'acme-cloud',
+    companySlug: PRIMARY_HR_COMPANY_SLUG,
     designation: 'Talent Acquisition Lead',
-    createdAt: daysAgo(300),
+    createdAt: daysBeforeReference(300),
   });
 
   // Named secondary HR accounts.
   for (const hr of NAMED_HR) {
     addHr({
       email: hr.email,
-      passwordHash: demoHash,
+      passwordHash: sharedHash,
       firstName: hr.firstName,
       lastName: hr.lastName,
       companySlug: hr.companySlug,
       designation: hr.designation,
-      createdAt: daysAgo(randInt(200, 300)),
+      createdAt: dateBetween(daysBeforeReference(300), daysBeforeReference(120)),
     });
   }
 
-  // Ensure every remaining company has at least one HR, then fill to target.
-  const remainingSlugs = COMPANY_DEFS.map((company) => company.slug).filter(
-    (slug) => !hrRecords.some((record) => record.companySlug === slug),
-  );
-
-  let counter = 0;
-  const nextGeneratedHr = (companySlug: string): void => {
-    const firstName = pick(FIRST_NAMES);
-    const lastName = pick(LAST_NAMES);
-    let email = `hr.${firstName}.${lastName}.${companySlug}`.toLowerCase().replace(/\s+/g, '');
-    email = `${email}@talentflow.dev`;
-    while (usedEmails.has(email)) {
-      counter += 1;
-      email =
-        `hr.${firstName}.${lastName}.${companySlug}.${counter}`.toLowerCase().replace(/\s+/g, '') +
-        '@talentflow.dev';
+  // Guarantee every company has at least one recruiter, then fill to target.
+  for (const company of companyDefs) {
+    if (!hrUserIdsByCompanySlug.has(company.slug)) {
+      addGeneratedHr(company.slug);
     }
-    addHr({
-      email,
-      passwordHash: demoHash,
-      firstName,
-      lastName,
-      companySlug,
-      designation: pick(HR_DESIGNATIONS),
-      createdAt: daysAgo(randInt(120, 300)),
-    });
-  };
-
-  for (const slug of remainingSlugs) {
-    nextGeneratedHr(slug);
   }
-  const companySlugs = COMPANY_DEFS.map((company) => company.slug);
+  const companySlugs = companyDefs.map((company) => company.slug);
   while (userRows.length < TARGET_HR_USERS) {
-    nextGeneratedHr(pick(companySlugs));
+    addGeneratedHr(pickOne(companySlugs));
   }
 
   await insertInBatches(userRows, (batch) => prisma.user.createMany({ data: batch }));
   await insertInBatches(profileRows, (batch) => prisma.hrProfile.createMany({ data: batch }));
-
-  const hrUserIdsByCompanySlug = new Map<string, string[]>();
-  for (const record of hrRecords) {
-    const list = hrUserIdsByCompanySlug.get(record.companySlug) ?? [];
-    list.push(record.userId);
-    hrUserIdsByCompanySlug.set(record.companySlug, list);
-  }
 
   return { primaryHrUserId, hrUserIdsByCompanySlug };
 }
@@ -1196,12 +1552,7 @@ async function seedHrUsers(companyIdBySlug: Map<string, string>): Promise<{
 interface CandidateRecord {
   readonly candidateProfileId: string;
   readonly email: string;
-  readonly totalExperienceMonths: number;
-  readonly skillSlugs: readonly string[];
-}
-
-function composeAbout(): string {
-  return `${pick(ABOUT_OPENERS)} ${pick(ABOUT_MIDDLES)} ${pick(ABOUT_CLOSERS)}`;
+  readonly createdAt: Date;
 }
 
 function experienceToLevel(months: number): ExperienceLevel {
@@ -1212,52 +1563,62 @@ function experienceToLevel(months: number): ExperienceLevel {
   return ExperienceLevel.LEAD;
 }
 
-function educationForCandidate(
+function composeAbout(): string {
+  return `${pickOne(ABOUT_OPENERS)} ${pickOne(ABOUT_MIDDLES)} ${pickOne(ABOUT_CLOSERS)}`;
+}
+
+function buildEducationEntries(
   candidateProfileId: string,
   highestEducation: EducationLevel,
   totalExperienceMonths: number,
+  createdAt: Date,
 ): Prisma.EducationEntryCreateManyInput[] {
-  const graduationYear = new Date().getFullYear() - Math.floor(totalExperienceMonths / 12) - 1;
-  const rows: Prisma.EducationEntryCreateManyInput[] = [];
+  const graduationYear =
+    REFERENCE_DATE.getUTCFullYear() - Math.floor(totalExperienceMonths / 12) - 1;
+  const hasPostgraduate =
+    highestEducation === EducationLevel.MASTERS || highestEducation === EducationLevel.DOCTORATE;
+  const bachelorsEndYear = hasPostgraduate ? graduationYear - 2 : graduationYear;
 
-  const bachelorsEnd =
-    highestEducation === EducationLevel.MASTERS ? graduationYear - 2 : graduationYear;
-  rows.push({
-    id: randomUUID(),
-    candidateProfileId,
-    institution: pick(COLLEGES),
-    degree: DEGREE_BY_LEVEL[EducationLevel.BACHELORS],
-    level: EducationLevel.BACHELORS,
-    fieldOfStudy: pick(FIELDS_OF_STUDY),
-    startYear: bachelorsEnd - 4,
-    endYear: bachelorsEnd,
-    grade: `${(7 + rng() * 3).toFixed(1)} CGPA`,
-  });
-
-  if (
-    highestEducation === EducationLevel.MASTERS ||
-    highestEducation === EducationLevel.DOCTORATE
-  ) {
-    rows.push({
-      id: randomUUID(),
+  const rows: Prisma.EducationEntryCreateManyInput[] = [
+    {
+      id: newId(),
       candidateProfileId,
-      institution: pick(COLLEGES),
+      institution: pickOne(UNIVERSITIES),
+      degree: DEGREE_BY_LEVEL[EducationLevel.BACHELORS],
+      level: EducationLevel.BACHELORS,
+      fieldOfStudy: pickOne(FIELDS_OF_STUDY),
+      startYear: bachelorsEndYear - 4,
+      endYear: bachelorsEndYear,
+      grade: `${(7 + faker.number.float({ min: 0, max: 3, fractionDigits: 1 })).toFixed(1)} CGPA`,
+      createdAt,
+      updatedAt: createdAt,
+    },
+  ];
+
+  if (hasPostgraduate) {
+    rows.push({
+      id: newId(),
+      candidateProfileId,
+      institution: pickOne(UNIVERSITIES),
       degree: DEGREE_BY_LEVEL[EducationLevel.MASTERS],
       level: EducationLevel.MASTERS,
-      fieldOfStudy: pick(FIELDS_OF_STUDY),
+      fieldOfStudy: pickOne(FIELDS_OF_STUDY),
       startYear: graduationYear - 2,
       endYear: graduationYear,
-      grade: `${(7.5 + rng() * 2.5).toFixed(1)} CGPA`,
+      grade: `${(7.5 + faker.number.float({ min: 0, max: 2.5, fractionDigits: 1 })).toFixed(1)} CGPA`,
+      createdAt,
+      updatedAt: createdAt,
     });
   }
 
   return rows;
 }
 
-function candidateSkillsFor(
+function buildCandidateSkills(
   candidateProfileId: string,
   skillSlugs: readonly string[],
-  skillIdBySlug: Map<string, string>,
+  skillIdBySlug: ReadonlyMap<string, string>,
+  createdAt: Date,
 ): Prisma.CandidateSkillCreateManyInput[] {
   const proficiencies: readonly ProficiencyLevel[] = [
     ProficiencyLevel.BEGINNER,
@@ -1266,99 +1627,116 @@ function candidateSkillsFor(
     ProficiencyLevel.EXPERT,
   ];
   return skillSlugs.map((slug) => ({
-    id: randomUUID(),
+    id: newId(),
     candidateProfileId,
     skillId: requireId(skillIdBySlug, slug),
-    proficiency: pick(proficiencies),
-    yearsOfExperience: randInt(1, 8),
+    proficiency: pickOne(proficiencies),
+    yearsOfExperience: randomInt(1, 8),
+    createdAt,
+    updatedAt: createdAt,
   }));
 }
 
-async function seedCandidates(skillIdBySlug: Map<string, string>): Promise<CandidateRecord[]> {
-  const demoHash = await hashPassword(DEMO_USER_PASSWORD);
-  const primaryHash = await hashPassword(PRIMARY_CANDIDATE_PASSWORD);
+interface CandidateSeedInput {
+  readonly email: string;
+  readonly passwordHash: string;
+  readonly firstName: string;
+  readonly lastName: string;
+  readonly headline: string;
+  readonly currentLocation: string;
+  readonly currentCompany: string;
+  readonly currentTitle: string;
+  readonly totalExperienceMonths: number;
+  readonly highestEducation: EducationLevel;
+  readonly skillSlugs: readonly string[];
+  readonly createdAt: Date;
+}
 
+async function seedCandidates(
+  companyNames: readonly string[],
+  skillIdBySlug: ReadonlyMap<string, string>,
+): Promise<CandidateRecord[]> {
+  const primaryHash = await hashPassword(PRIMARY_CANDIDATE_PASSWORD);
+  const demoHash = await hashPassword(DEMO_USER_PASSWORD);
+  const sharedHash = demoHash; // reuse one bcrypt hash for every generated candidate
+
+  const nextEmail = createUniqueEmailFactory(GENERATED_CANDIDATE_EMAIL_DOMAIN);
   const userRows: Prisma.UserCreateManyInput[] = [];
   const profileRows: Prisma.CandidateProfileCreateManyInput[] = [];
   const skillRows: Prisma.CandidateSkillCreateManyInput[] = [];
   const educationRows: Prisma.EducationEntryCreateManyInput[] = [];
   const records: CandidateRecord[] = [];
-  const usedEmails = new Set<string>();
 
-  const allSkillSlugs = ALL_SKILLS.map((skill) => skill.slug);
+  const externalEmployerNames: readonly string[] = [
+    ...companyNames,
+    'Infosys',
+    'Tata Consultancy Services',
+    'Wipro',
+    'Accenture',
+    'Cognizant',
+    'Google',
+    'Microsoft',
+    'Freelance',
+  ];
 
-  const addCandidate = (params: {
-    email: string;
-    passwordHash: string;
-    firstName: string;
-    lastName: string;
-    headline: string;
-    currentLocation: string;
-    currentCompany: string;
-    currentTitle: string;
-    totalExperienceMonths: number;
-    highestEducation: EducationLevel;
-    skillSlugs: readonly string[];
-    createdAt: Date;
-  }): void => {
-    const userId = randomUUID();
-    const candidateProfileId = randomUUID();
-    usedEmails.add(params.email);
+  const addCandidate = (input: CandidateSeedInput): void => {
+    const userId = newId();
+    const candidateProfileId = newId();
 
     userRows.push({
       id: userId,
-      email: params.email,
-      passwordHash: params.passwordHash,
-      firstName: params.firstName,
-      lastName: params.lastName,
+      email: input.email,
+      passwordHash: input.passwordHash,
+      firstName: input.firstName,
+      lastName: input.lastName,
       role: UserRole.CANDIDATE,
-      createdAt: params.createdAt,
+      createdAt: input.createdAt,
+      updatedAt: input.createdAt,
     });
 
-    const expectedMin = 600000 + Math.round(params.totalExperienceMonths * 22000);
+    const expectedSalaryMin = 600000 + Math.round(input.totalExperienceMonths * 22000);
     profileRows.push({
       id: candidateProfileId,
       userId,
-      headline: params.headline,
+      headline: input.headline,
       about: composeAbout(),
-      phone: `+91 ${randInt(70, 99)}${randInt(100, 999)} ${randInt(10000, 99999)}`,
-      currentLocation: params.currentLocation,
-      preferredLocation: chance(0.35) ? 'Remote' : pick(LOCATIONS),
-      currentCompany: params.currentCompany,
-      currentTitle: params.currentTitle,
-      totalExperienceMonths: params.totalExperienceMonths,
-      highestEducation: params.highestEducation,
-      expectedSalaryMin: expectedMin,
-      expectedSalaryMax: expectedMin + randInt(400000, 1200000),
-      noticePeriodDays: pick([0, 15, 30, 45, 60, 90] as const),
+      phone: faker.phone.number({ style: 'international' }),
+      currentLocation: input.currentLocation,
+      preferredLocation: chance(0.35) ? REMOTE_LOCATION_LABEL : pickOne(WORLD_LOCATIONS),
+      currentCompany: input.currentCompany,
+      currentTitle: input.currentTitle,
+      totalExperienceMonths: input.totalExperienceMonths,
+      highestEducation: input.highestEducation,
+      expectedSalaryMin,
+      expectedSalaryMax: expectedSalaryMin + randomInt(400000, 1200000),
+      noticePeriodDays: pickOne(NOTICE_PERIOD_OPTIONS),
       isOpenToWork: chance(0.82),
       resumeUrl: `https://resumes.talentflow.dev/${userId}.pdf`,
-      createdAt: params.createdAt,
+      createdAt: input.createdAt,
+      updatedAt: input.createdAt,
     });
 
-    skillRows.push(...candidateSkillsFor(candidateProfileId, params.skillSlugs, skillIdBySlug));
+    skillRows.push(
+      ...buildCandidateSkills(candidateProfileId, input.skillSlugs, skillIdBySlug, input.createdAt),
+    );
     educationRows.push(
-      ...educationForCandidate(
+      ...buildEducationEntries(
         candidateProfileId,
-        params.highestEducation,
-        params.totalExperienceMonths,
+        input.highestEducation,
+        input.totalExperienceMonths,
+        input.createdAt,
       ),
     );
 
-    records.push({
-      candidateProfileId,
-      email: params.email,
-      totalExperienceMonths: params.totalExperienceMonths,
-      skillSlugs: params.skillSlugs,
-    });
+    records.push({ candidateProfileId, email: input.email, createdAt: input.createdAt });
   };
 
   // Primary + named candidates (preserved exactly).
-  const namedList: ReadonlyArray<{ candidate: NamedCandidate; hash: string }> = [
+  const namedCandidates: ReadonlyArray<{ candidate: NamedCandidate; hash: string }> = [
     { candidate: PRIMARY_CANDIDATE, hash: primaryHash },
-    ...NAMED_CANDIDATES.map((candidate) => ({ candidate, hash: demoHash })),
+    ...NAMED_CANDIDATES.map((candidate) => ({ candidate, hash: sharedHash })),
   ];
-  for (const { candidate, hash } of namedList) {
+  for (const { candidate, hash } of namedCandidates) {
     addCandidate({
       email: candidate.email,
       passwordHash: hash,
@@ -1371,65 +1749,45 @@ async function seedCandidates(skillIdBySlug: Map<string, string>): Promise<Candi
       totalExperienceMonths: candidate.totalExperienceMonths,
       highestEducation: candidate.highestEducation,
       skillSlugs: candidate.skillSlugs,
-      createdAt: daysAgo(randInt(120, 320)),
+      createdAt: dateBetween(daysBeforeReference(320), daysBeforeReference(120)),
     });
   }
 
   // Generated candidates to reach the target volume.
-  const titlePool = ROLE_TEMPLATES.map((role) => role.base);
-  const companyNamePool = [
-    ...COMPANY_DEFS.map((company) => company.name),
-    'Infosys',
-    'TCS',
-    'Wipro',
-    'Accenture',
-    'Cognizant',
-    'Google',
-    'Microsoft',
-    'Freelance',
-  ];
-  let counter = 0;
   while (userRows.length < TARGET_CANDIDATES) {
-    const firstName = pick(FIRST_NAMES);
-    const lastName = pick(LAST_NAMES);
-    let email = `${firstName}.${lastName}${counter}`.toLowerCase() + '@mail.talentflow.dev';
-    while (usedEmails.has(email)) {
-      counter += 1;
-      email = `${firstName}.${lastName}${counter}`.toLowerCase() + '@mail.talentflow.dev';
-    }
-    counter += 1;
-
-    const totalExperienceMonths = randInt(0, 168);
+    const firstName = faker.person.firstName();
+    const lastName = faker.person.lastName();
+    const totalExperienceMonths = randomInt(0, 168);
     const level = experienceToLevel(totalExperienceMonths);
-    const highestEducation = weightedPick<EducationLevel>([
+    const highestEducation = pickWeighted<EducationLevel>([
       [EducationLevel.BACHELORS, 6],
       [EducationLevel.MASTERS, 3],
       [EducationLevel.DIPLOMA, 1],
       [EducationLevel.DOCTORATE, 1],
     ]);
-    const role = pick(ROLE_TEMPLATES);
-    const seniority = pick(SENIORITY_BY_LEVEL[level]);
+    const role = pickOne(ROLE_TEMPLATES);
+    const seniority = pickOne(SENIORITY_BY_LEVEL[level]);
     const currentTitle = `${seniority} ${role.base}`.trim();
     const primarySkills = pickDistinct(
       role.skillSlugs,
-      randInt(3, Math.min(6, role.skillSlugs.length)),
+      randomInt(3, Math.min(6, role.skillSlugs.length)),
     );
-    const extraSkills = pickDistinct(allSkillSlugs, randInt(0, 3));
+    const extraSkills = pickDistinct(ALL_SKILL_SLUGS, randomInt(0, 3));
     const skillSlugs = [...new Set([...primarySkills, ...extraSkills])];
 
     addCandidate({
-      email,
-      passwordHash: demoHash,
+      email: nextEmail(firstName, lastName),
+      passwordHash: sharedHash,
       firstName,
       lastName,
-      headline: `${currentTitle} · ${pick(titlePool)} background`,
-      currentLocation: pick(LOCATIONS),
-      currentCompany: pick(companyNamePool),
+      headline: `${currentTitle} · ${pickOne(role.skillSlugs)} focus`,
+      currentLocation: pickOne(WORLD_LOCATIONS),
+      currentCompany: pickOne(externalEmployerNames),
       currentTitle,
       totalExperienceMonths,
       highestEducation,
       skillSlugs,
-      createdAt: daysAgo(randInt(30, 340)),
+      createdAt: dateBetween(daysBeforeReference(340), daysBeforeReference(15)),
     });
   }
 
@@ -1453,33 +1811,47 @@ interface JobRecord {
   readonly jobId: string;
   readonly postedById: string;
   readonly status: JobStatus;
-  readonly createdAt: Date;
+  readonly publishedAt: Date;
 }
 
 function composeJobDescription(roleBase: string, companyName: string): string {
   return [
-    pick(JOB_INTROS),
+    pickOne(JOB_INTROS),
     `As a ${roleBase} at ${companyName}, you will:`,
-    `• ${pick(JOB_RESPONSIBILITIES)}`,
-    `• ${pick(JOB_RESPONSIBILITIES)}`,
-    `• ${pick(JOB_RESPONSIBILITIES)}`,
-    pick(JOB_CLOSINGS),
+    `• ${pickOne(JOB_RESPONSIBILITIES)}`,
+    `• ${pickOne(JOB_RESPONSIBILITIES)}`,
+    `• ${pickOne(JOB_RESPONSIBILITIES)}`,
+    pickOne(JOB_CLOSINGS),
   ].join('\n');
 }
 
+function composeJobTitle(roleBase: string, experienceLevel: ExperienceLevel): string {
+  const seniority = pickOne(SENIORITY_BY_LEVEL[experienceLevel]);
+  if (experienceLevel === ExperienceLevel.EXECUTIVE) {
+    const roleWithoutSuffix = roleBase.replace(
+      / (Engineer|Manager|Designer|Researcher|Architect)$/,
+      '',
+    );
+    return `${seniority} ${roleWithoutSuffix}`.trim();
+  }
+  return `${seniority} ${roleBase}`.trim();
+}
+
 async function seedJobs(
-  companyIdBySlug: Map<string, string>,
-  skillIdBySlug: Map<string, string>,
-  hrUserIdsByCompanySlug: Map<string, string[]>,
+  companyDefs: readonly CompanyDef[],
+  companyIdBySlug: ReadonlyMap<string, string>,
+  skillIdBySlug: ReadonlyMap<string, string>,
+  hrUserIdsByCompanySlug: ReadonlyMap<string, string[]>,
+  primaryHrUserId: string,
 ): Promise<JobRecord[]> {
   const jobRows: Prisma.JobCreateManyInput[] = [];
   const jobSkillRows: Prisma.JobSkillCreateManyInput[] = [];
   const records: JobRecord[] = [];
 
-  const companySlugs = COMPANY_DEFS.map((company) => company.slug);
-  const companyNameBySlug = new Map(COMPANY_DEFS.map((company) => [company.slug, company.name]));
+  const companyNameBySlug = new Map(companyDefs.map((company) => [company.slug, company.name]));
+  const companySlugs = companyDefs.map((company) => company.slug);
 
-  const levels: ReadonlyArray<readonly [ExperienceLevel, number]> = [
+  const experienceLevels: ReadonlyArray<readonly [ExperienceLevel, number]> = [
     [ExperienceLevel.INTERNSHIP, 1],
     [ExperienceLevel.ENTRY_LEVEL, 2],
     [ExperienceLevel.MID_LEVEL, 4],
@@ -1490,9 +1862,9 @@ async function seedJobs(
   const employmentTypes: ReadonlyArray<readonly [EmploymentType, number]> = [
     [EmploymentType.FULL_TIME, 8],
     [EmploymentType.CONTRACT, 2],
-    [EmploymentType.INTERNSHIP, 1],
     [EmploymentType.PART_TIME, 1],
     [EmploymentType.FREELANCE, 1],
+    [EmploymentType.TEMPORARY, 1],
   ];
   const locationTypes: ReadonlyArray<readonly [LocationType, number]> = [
     [LocationType.ONSITE, 3],
@@ -1505,72 +1877,78 @@ async function seedJobs(
     [JobStatus.CLOSED, 1],
   ];
 
-  for (let i = 0; i < TARGET_JOBS; i += 1) {
-    // Bias a healthy share of jobs to Acme Cloud so the primary HR has a full board.
-    const companySlug = i < 24 ? 'acme-cloud' : pick(companySlugs);
+  for (let index = 0; index < TARGET_JOBS; index += 1) {
+    // Pin an initial block to the primary HR / company so the demo board is full.
+    const pinnedToPrimary = index < PRIMARY_HR_JOB_COUNT;
+    const companySlug = pinnedToPrimary ? PRIMARY_HR_COMPANY_SLUG : pickOne(companySlugs);
     const companyName = companyNameBySlug.get(companySlug) ?? companySlug;
-    const hrPool = hrUserIdsByCompanySlug.get(companySlug) ?? [];
-    if (hrPool.length === 0) {
+    const recruiterPool = hrUserIdsByCompanySlug.get(companySlug) ?? [];
+    if (recruiterPool.length === 0) {
       throw new Error(`No HR user available for company "${companySlug}".`);
     }
-    const postedById = pick(hrPool);
+    const postedById = pinnedToPrimary ? primaryHrUserId : pickOne(recruiterPool);
 
-    const role = pick(ROLE_TEMPLATES);
-    const experienceLevel = weightedPick(levels);
+    const role = pickOne(ROLE_TEMPLATES);
+    const experienceLevel = pickWeighted(experienceLevels);
     const employmentType =
       experienceLevel === ExperienceLevel.INTERNSHIP
         ? EmploymentType.INTERNSHIP
-        : weightedPick(employmentTypes);
-    const locationType = weightedPick(locationTypes);
-    const status = i < 24 ? JobStatus.PUBLISHED : weightedPick(statuses);
+        : pickWeighted(employmentTypes);
+    const locationType = pickWeighted(locationTypes);
+    const status = pinnedToPrimary ? JobStatus.PUBLISHED : pickWeighted(statuses);
     const band = SALARY_BY_LEVEL[experienceLevel];
-    const salaryMin = band.min + randInt(0, 3) * 100000;
-    const salaryMax = salaryMin + randInt(3, 12) * 100000;
+    const salaryMin = band.min + randomInt(0, 3) * 100000;
+    const salaryMax = salaryMin + randomInt(3, 12) * 100000;
 
-    const seniority = pick(SENIORITY_BY_LEVEL[experienceLevel]);
-    const title =
-      experienceLevel === ExperienceLevel.EXECUTIVE
-        ? `${seniority} ${role.base.replace(/ (Engineer|Manager|Designer|Researcher|Architect)$/, '')}`.trim()
-        : `${seniority} ${role.base}`.trim();
-
-    const createdAt = daysAgo(randInt(1, 240));
-    const jobId = randomUUID();
+    const createdAt = dateBetween(daysBeforeReference(240), daysBeforeReference(1));
+    const isLive = status === JobStatus.PUBLISHED || status === JobStatus.CLOSED;
+    const publishedAt = createdAt;
+    const closedAt =
+      status === JobStatus.CLOSED ? dateBetween(createdAt, REFERENCE_DATE) : createdAt;
+    const jobId = newId();
 
     jobRows.push({
       id: jobId,
       companyId: requireId(companyIdBySlug, companySlug),
       postedById,
-      title,
+      title: composeJobTitle(role.base, experienceLevel),
       description: composeJobDescription(role.base, companyName),
       employmentType,
       experienceLevel,
       locationType,
-      location: locationType === LocationType.REMOTE ? 'Remote (India)' : pick(LOCATIONS),
-      minExperienceYears: band.minExp,
-      maxExperienceYears: band.maxExp,
+      location:
+        locationType === LocationType.REMOTE ? REMOTE_LOCATION_LABEL : pickOne(WORLD_LOCATIONS),
+      minExperienceYears: band.minExperienceYears,
+      maxExperienceYears: band.maxExperienceYears,
       salaryMin,
       salaryMax,
       salaryPeriod: SalaryPeriod.YEARLY,
-      openings: randInt(1, 5),
+      openings: randomInt(1, 5),
       status,
-      publishedAt: status === JobStatus.PUBLISHED || status === JobStatus.CLOSED ? createdAt : null,
+      publishedAt: isLive ? publishedAt : null,
+      expiresAt:
+        status === JobStatus.PUBLISHED && chance(0.5)
+          ? new Date(publishedAt.getTime() + randomInt(30, 90) * MILLIS_PER_DAY)
+          : null,
       createdAt,
+      updatedAt: status === JobStatus.CLOSED ? closedAt : createdAt,
     });
 
-    // 3–8 connected skills with a required/optional mix.
-    const skillCount = randInt(3, Math.min(8, role.skillSlugs.length));
-    const chosen = pickDistinct(role.skillSlugs, skillCount);
-    chosen.forEach((slug, index) => {
+    const skillCount = randomInt(3, Math.min(8, role.skillSlugs.length));
+    const chosenSkills = pickDistinct(role.skillSlugs, skillCount);
+    const requiredCutoff = Math.ceil(skillCount / 2);
+    chosenSkills.forEach((slug, position) => {
       jobSkillRows.push({
-        id: randomUUID(),
+        id: newId(),
         jobId,
         skillId: requireId(skillIdBySlug, slug),
-        // First ~half are required (must-haves), the rest are nice-to-haves.
-        isRequired: index < Math.ceil(skillCount / 2),
+        isRequired: position < requiredCutoff,
+        createdAt,
+        updatedAt: createdAt,
       });
     });
 
-    records.push({ jobId, postedById, status, createdAt });
+    records.push({ jobId, postedById, status, publishedAt });
   }
 
   await insertInBatches(jobRows, (batch) => prisma.job.createMany({ data: batch }));
@@ -1593,19 +1971,31 @@ const PIPELINE_ORDER: readonly ApplicationStatus[] = [
   ApplicationStatus.HIRED,
 ];
 
-const COVER_LETTERS: readonly string[] = [
-  'I am excited about this role and believe my experience is a strong match for the team.',
-  'This opportunity aligns closely with my skills and the kind of impact I want to have.',
-  'I have shipped similar systems before and would love to bring that experience to your team.',
-  'Your product resonates with me and I am confident I can contribute from day one.',
-  'I enjoy the problem space you are working in and would be thrilled to help you scale it.',
+const FINAL_STATUS_DISTRIBUTION: ReadonlyArray<readonly [ApplicationStatus, number]> = [
+  [ApplicationStatus.APPLIED, 34],
+  [ApplicationStatus.UNDER_REVIEW, 22],
+  [ApplicationStatus.SHORTLISTED, 12],
+  [ApplicationStatus.INTERVIEW, 9],
+  [ApplicationStatus.OFFERED, 4],
+  [ApplicationStatus.HIRED, 3],
+  [ApplicationStatus.REJECTED, 13],
+  [ApplicationStatus.WITHDRAWN, 3],
 ];
+
+/** Long-tail popularity weights so a few jobs attract most applicants. */
+const JOB_POPULARITY_WEIGHTS: ReadonlyArray<readonly [number, number]> = [
+  [1, 5],
+  [3, 3],
+  [6, 2],
+  [12, 1],
+];
+
+const MAX_STATUS_STEP_DAYS = 6;
 
 /** Builds the ordered status flow that terminates at `finalStatus`. */
 function buildStatusFlow(finalStatus: ApplicationStatus): ApplicationStatus[] {
   if (finalStatus === ApplicationStatus.REJECTED || finalStatus === ApplicationStatus.WITHDRAWN) {
-    // Progress a little way down the pipeline, then terminate.
-    const depth = randInt(1, 3);
+    const depth = randomInt(1, 3);
     return [...PIPELINE_ORDER.slice(0, depth), finalStatus];
   }
   const endIndex = PIPELINE_ORDER.indexOf(finalStatus);
@@ -1615,102 +2005,88 @@ function buildStatusFlow(finalStatus: ApplicationStatus): ApplicationStatus[] {
 async function seedApplications(
   candidates: readonly CandidateRecord[],
   jobs: readonly JobRecord[],
+  primaryCandidateEmail: string,
 ): Promise<number> {
   const applicationRows: Prisma.ApplicationCreateManyInput[] = [];
   const eventRows: Prisma.ApplicationStatusEventCreateManyInput[] = [];
 
-  const openJobs = jobs.filter(
+  const liveJobs = jobs.filter(
     (job) => job.status === JobStatus.PUBLISHED || job.status === JobStatus.CLOSED,
   );
-  if (openJobs.length === 0) {
-    throw new Error('No open jobs available to receive applications.');
+  if (liveJobs.length === 0) {
+    throw new Error('No live jobs available to receive applications.');
   }
 
-  // Give each job an intrinsic "popularity" weight so some jobs attract many
-  // applicants and others few (realistic long-tail distribution).
-  const jobWeights = new Map<string, number>();
-  for (const job of openJobs) {
-    jobWeights.set(
-      job.jobId,
-      weightedPick<number>([
-        [1, 5],
-        [3, 3],
-        [6, 2],
-        [12, 1],
-      ]),
-    );
-  }
-  const jobById = new Map(jobs.map((job) => [job.jobId, job]));
-
-  const finalStatusDistribution: ReadonlyArray<readonly [ApplicationStatus, number]> = [
-    [ApplicationStatus.APPLIED, 34],
-    [ApplicationStatus.UNDER_REVIEW, 22],
-    [ApplicationStatus.SHORTLISTED, 12],
-    [ApplicationStatus.INTERVIEW, 9],
-    [ApplicationStatus.OFFERED, 4],
-    [ApplicationStatus.HIRED, 3],
-    [ApplicationStatus.REJECTED, 13],
-    [ApplicationStatus.WITHDRAWN, 3],
-  ];
+  // Weight job selection by intrinsic popularity to create a natural long tail.
+  const weightedJobEntries: ReadonlyArray<readonly [JobRecord, number]> = liveJobs.map((job) => [
+    job,
+    pickWeighted(JOB_POPULARITY_WEIGHTS),
+  ]);
 
   const taken = new Set<string>(); // `${jobId}:${candidateProfileId}` — enforces the unique constraint.
 
-  const addApplication = (params: {
-    jobId: string;
-    candidateProfileId: string;
-    finalStatus: ApplicationStatus;
-  }): boolean => {
-    const key = `${params.jobId}:${params.candidateProfileId}`;
+  const addApplication = (
+    job: JobRecord,
+    candidate: CandidateRecord,
+    finalStatus: ApplicationStatus,
+  ): boolean => {
+    const key = `${job.jobId}:${candidate.candidateProfileId}`;
     if (taken.has(key)) {
       return false;
     }
-    const job = jobById.get(params.jobId);
-    if (!job) {
+    // A candidate can only apply once the job is live AND their account exists.
+    const earliestApply = new Date(
+      Math.max(job.publishedAt.getTime(), candidate.createdAt.getTime()),
+    );
+    if (earliestApply.getTime() >= REFERENCE_DATE.getTime()) {
       return false;
     }
     taken.add(key);
 
-    // Application is created after the job went live; spread across recent months.
-    const jobAgeDays = Math.max(
-      1,
-      Math.floor((Date.now() - job.createdAt.getTime()) / (24 * 60 * 60 * 1000)),
-    );
-    const appliedDaysAgo = randInt(0, Math.min(jobAgeDays, 180));
-    const createdAt = daysAgo(appliedDaysAgo);
+    const appliedAt = dateBetween(earliestApply, REFERENCE_DATE);
+    const applicationId = newId();
+    const flow = buildStatusFlow(finalStatus);
 
-    const applicationId = randomUUID();
-    const flow = buildStatusFlow(params.finalStatus);
-
-    applicationRows.push({
-      id: applicationId,
-      jobId: params.jobId,
-      candidateProfileId: params.candidateProfileId,
-      status: params.finalStatus,
-      coverLetter: chance(0.7) ? pick(COVER_LETTERS) : null,
-      resumeUrl: `https://resumes.talentflow.dev/${params.candidateProfileId}.pdf`,
-      createdAt,
-    });
-
-    // One audit event per transition, timestamps marching forward from apply.
-    flow.forEach((status, index) => {
+    // One audit event per transition; timestamps march forward, clamped to the
+    // reference date so no event is ever recorded "in the future".
+    let eventAt = appliedAt;
+    let lastEventAt = appliedAt;
+    flow.forEach((status, position) => {
+      if (position > 0) {
+        const advanced = eventAt.getTime() + randomInt(1, MAX_STATUS_STEP_DAYS) * MILLIS_PER_DAY;
+        eventAt = new Date(Math.min(advanced, REFERENCE_DATE.getTime()));
+      }
+      lastEventAt = eventAt;
       eventRows.push({
-        id: randomUUID(),
+        id: newId(),
         applicationId,
         status,
         note: null,
-        // The initial APPLIED event is the candidate's action; later transitions
-        // are recorded by the HR who owns the job.
+        // The initial APPLIED event is the candidate's own action; later
+        // transitions are recorded by the HR who owns the job.
         changedById: status === ApplicationStatus.APPLIED ? null : job.postedById,
-        createdAt: new Date(createdAt.getTime() + index * 3 * 24 * 60 * 60 * 1000),
+        createdAt: eventAt,
+        updatedAt: eventAt,
       });
+    });
+
+    applicationRows.push({
+      id: applicationId,
+      jobId: job.jobId,
+      candidateProfileId: candidate.candidateProfileId,
+      status: finalStatus,
+      coverLetter: chance(0.7) ? pickOne(COVER_LETTERS) : null,
+      resumeUrl: `https://resumes.talentflow.dev/${candidate.candidateProfileId}.pdf`,
+      createdAt: appliedAt,
+      updatedAt: lastEventAt,
     });
     return true;
   };
 
-  // 1) Guarantee the primary candidate a rich, varied application board on the
-  //    primary HR's (Acme Cloud) jobs so the demo screens are populated.
+  // 1) Guarantee the primary candidate a rich, varied board on the primary HR's
+  //    (published) jobs so the demo screens are populated end to end.
   const primaryCandidate = candidates.find(
-    (candidate) => candidate.email === PRIMARY_CANDIDATE_EMAIL,
+    (candidate) => candidate.email === primaryCandidateEmail,
   );
   if (primaryCandidate) {
     const demoStatuses: readonly ApplicationStatus[] = [
@@ -1721,41 +2097,21 @@ async function seedApplications(
       ApplicationStatus.APPLIED,
       ApplicationStatus.REJECTED,
     ];
-    const jobsForPrimary = shuffled(openJobs).slice(0, demoStatuses.length);
-    jobsForPrimary.forEach((job, index) => {
-      addApplication({
-        jobId: job.jobId,
-        candidateProfileId: primaryCandidate.candidateProfileId,
-        finalStatus: demoStatuses[index] ?? ApplicationStatus.APPLIED,
-      });
+    const demoJobs = pickDistinct(liveJobs, PRIMARY_CANDIDATE_DEMO_APPLICATIONS);
+    demoJobs.forEach((job, position) => {
+      addApplication(job, primaryCandidate, demoStatuses[position] ?? ApplicationStatus.APPLIED);
     });
   }
 
-  // 2) Popularity-driven bulk generation. Each job draws applicants up to its
-  //    weight; candidates are sampled without replacement per job.
-  for (const job of openJobs) {
-    const targetApplicants = jobWeights.get(job.jobId) ?? 1;
-    const applicantPool = pickDistinct(candidates, targetApplicants + randInt(0, 2));
-    for (const candidate of applicantPool) {
-      addApplication({
-        jobId: job.jobId,
-        candidateProfileId: candidate.candidateProfileId,
-        finalStatus: weightedPick(finalStatusDistribution),
-      });
-    }
-  }
-
-  // 3) Candidate-driven top-up so most candidates have several applications and
-  //    the total comfortably clears the target volume.
+  // 2) Candidate-driven generation: each candidate applies to a weighted number
+  //    of jobs, picking jobs by popularity so the distribution is realistic.
   for (const candidate of candidates) {
-    const desired = randInt(3, 10);
-    const jobsForCandidate = pickDistinct(openJobs, desired);
-    for (const job of jobsForCandidate) {
-      addApplication({
-        jobId: job.jobId,
-        candidateProfileId: candidate.candidateProfileId,
-        finalStatus: weightedPick(finalStatusDistribution),
-      });
+    const applicationCount = pickWeighted(
+      APPLICATIONS_PER_CANDIDATE.map((entry) => [entry.value, entry.weight] as const),
+    );
+    for (let attempt = 0; attempt < applicationCount; attempt += 1) {
+      const job = pickWeighted(weightedJobEntries);
+      addApplication(job, candidate, pickWeighted(FINAL_STATUS_DISTRIBUTION));
     }
   }
 
@@ -1776,24 +2132,37 @@ async function main(): Promise<void> {
 
   await clearDatabase();
 
-  const companyIdBySlug = await seedCompanies();
+  const companyDefs = buildCompanyDefs();
+  const companyIdBySlug = await seedCompanies(companyDefs);
   console.info(`  ✓ ${companyIdBySlug.size} companies`);
 
   const skillIdBySlug = await seedSkills();
   console.info(`  ✓ ${skillIdBySlug.size} skills`);
 
-  const { primaryHrUserId, hrUserIdsByCompanySlug } = await seedHrUsers(companyIdBySlug);
-  void primaryHrUserId;
-  const hrCount = [...hrUserIdsByCompanySlug.values()].reduce((sum, list) => sum + list.length, 0);
+  const { primaryHrUserId, hrUserIdsByCompanySlug } = await seedHrUsers(
+    companyDefs,
+    companyIdBySlug,
+  );
+  const hrCount = [...hrUserIdsByCompanySlug.values()].reduce(
+    (sum, roster) => sum + roster.length,
+    0,
+  );
   console.info(`  ✓ ${hrCount} HR users across ${hrUserIdsByCompanySlug.size} companies`);
 
-  const candidates = await seedCandidates(skillIdBySlug);
+  const companyNames = companyDefs.map((company) => company.name);
+  const candidates = await seedCandidates(companyNames, skillIdBySlug);
   console.info(`  ✓ ${candidates.length} candidates (with profiles, skills, education)`);
 
-  const jobs = await seedJobs(companyIdBySlug, skillIdBySlug, hrUserIdsByCompanySlug);
+  const jobs = await seedJobs(
+    companyDefs,
+    companyIdBySlug,
+    skillIdBySlug,
+    hrUserIdsByCompanySlug,
+    primaryHrUserId,
+  );
   console.info(`  ✓ ${jobs.length} jobs`);
 
-  const applicationCount = await seedApplications(candidates, jobs);
+  const applicationCount = await seedApplications(candidates, jobs, PRIMARY_CANDIDATE_EMAIL);
   console.info(`  ✓ ${applicationCount} applications (with status-event history)`);
 
   console.info('✅ Seed complete.');

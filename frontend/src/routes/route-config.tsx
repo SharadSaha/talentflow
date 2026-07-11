@@ -1,7 +1,6 @@
 import { lazy } from 'react';
 import { Navigate, type RouteObject } from 'react-router-dom';
 
-import { PlaceholderPage } from '@/components/dev/PlaceholderPage';
 import { RouteErrorBoundary } from '@/components/errors/RouteErrorBoundary';
 import { ROUTES } from '@/constants/routes';
 import { USER_ROLE } from '@/constants/roles';
@@ -32,12 +31,15 @@ const JobDetailsPage = lazy(() => import('@/features/jobs/pages/JobDetailsPage')
 const AppliedJobsPage = lazy(() => import('@/features/applications/pages/AppliedJobsPage'));
 const CandidateProfilePage = lazy(() => import('@/features/profile/pages/CandidateProfilePage'));
 
+const CandidateSettingsPage = lazy(() => import('@/features/settings/pages/CandidateSettingsPage'));
+
 const HrDashboardPage = lazy(() => import('@/features/hr/pages/HrDashboardPage'));
 const JobsManagementPage = lazy(() => import('@/features/hr/pages/JobsManagementPage'));
 const CreateJobPage = lazy(() => import('@/features/hr/pages/CreateJobPage'));
 const EditJobPage = lazy(() => import('@/features/hr/pages/EditJobPage'));
 const ApplicantsPage = lazy(() => import('@/features/hr/pages/ApplicantsPage'));
 const HrProfilePage = lazy(() => import('@/features/hr/pages/HrProfilePage'));
+const HrSettingsPage = lazy(() => import('@/features/settings/pages/HrSettingsPage'));
 
 /**
  * Application route tree. Structure, not features: the public landing page, auth
@@ -47,8 +49,8 @@ const HrProfilePage = lazy(() => import('@/features/hr/pages/HrProfilePage'));
  * Child paths are RELATIVE and each authenticated area is a `path`-prefixed
  * layout route — the idiomatic React Router shape. (Absolute paths nested under
  * pathless layout routes mis-rank against the public index and must be avoided.)
- * Feature slots use `PlaceholderPage` until their modules exist; each carries a
- * `handle.title` so breadcrumbs stay in sync with routing.
+ * Each authenticated route carries a `handle.title` so breadcrumbs stay in sync
+ * with routing.
  */
 export const routes: RouteObject[] = [
   {
@@ -98,7 +100,7 @@ export const routes: RouteObject[] = [
                   { index: true, element: <Navigate to="dashboard" replace /> },
                   {
                     path: 'dashboard',
-                    handle: { title: 'Dashboard' },
+                    handle: { title: 'Career Hub' },
                     element: <CandidateDashboardPage />,
                   },
                   {
@@ -113,7 +115,7 @@ export const routes: RouteObject[] = [
                   },
                   {
                     path: 'applications',
-                    handle: { title: 'Applied Jobs' },
+                    handle: { title: 'My Applications' },
                     element: <AppliedJobsPage />,
                   },
                   {
@@ -124,12 +126,7 @@ export const routes: RouteObject[] = [
                   {
                     path: 'settings',
                     handle: { title: 'Settings' },
-                    element: (
-                      <PlaceholderPage
-                        title="Settings"
-                        description="Account settings are coming soon."
-                      />
-                    ),
+                    element: <CandidateSettingsPage />,
                   },
                 ],
               },
@@ -147,7 +144,7 @@ export const routes: RouteObject[] = [
                   { index: true, element: <Navigate to="dashboard" replace /> },
                   {
                     path: 'dashboard',
-                    handle: { title: 'Dashboard' },
+                    handle: { title: 'Hiring Hub' },
                     element: <HrDashboardPage />,
                   },
                   { path: 'jobs', handle: { title: 'Jobs' }, element: <JobsManagementPage /> },
@@ -170,12 +167,7 @@ export const routes: RouteObject[] = [
                   {
                     path: 'settings',
                     handle: { title: 'Settings' },
-                    element: (
-                      <PlaceholderPage
-                        title="Settings"
-                        description="Workspace settings are coming soon."
-                      />
-                    ),
+                    element: <HrSettingsPage />,
                   },
                 ],
               },

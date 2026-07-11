@@ -54,9 +54,9 @@ describe('Sidebar', () => {
     renderSidebar(USER_ROLE.CANDIDATE, '/candidate/dashboard');
 
     const nav = screen.getByRole('navigation', { name: /primary/i });
-    expect(within(nav).getByRole('link', { name: /dashboard/i })).toBeInTheDocument();
+    expect(within(nav).getByRole('link', { name: /career hub/i })).toBeInTheDocument();
     expect(within(nav).getByRole('link', { name: /browse jobs/i })).toBeInTheDocument();
-    expect(within(nav).getByRole('link', { name: /applied jobs/i })).toBeInTheDocument();
+    expect(within(nav).getByRole('link', { name: /my applications/i })).toBeInTheDocument();
     expect(within(nav).queryByRole('link', { name: /applicants/i })).not.toBeInTheDocument();
   });
 
@@ -77,7 +77,7 @@ describe('Sidebar', () => {
       'aria-current',
       'page',
     );
-    expect(within(nav).getByRole('link', { name: /dashboard/i })).not.toHaveAttribute(
+    expect(within(nav).getByRole('link', { name: /hiring hub/i })).not.toHaveAttribute(
       'aria-current',
     );
   });

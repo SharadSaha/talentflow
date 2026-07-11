@@ -18,7 +18,7 @@ export function ProfileCompletionCard({ value }: ProfileCompletionCardProps) {
   const isComplete = value >= 100;
 
   return (
-    <Card>
+    <Card className="shadow-elevation-low">
       <CardHeader className="flex-row items-center justify-between gap-3">
         <CardTitle>Profile completion</CardTitle>
         <span className="text-h3 font-semibold tabular-nums text-foreground">{value}%</span>

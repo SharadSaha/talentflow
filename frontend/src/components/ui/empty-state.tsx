@@ -29,8 +29,16 @@ export const EmptyState = forwardRef<HTMLDivElement, EmptyStateProps>(function E
       {...props}
     >
       {Icon && (
-        <div className="rounded-full bg-muted p-3">
-          <Icon className="size-6 text-foreground-muted" />
+        <div className="relative mb-1 flex size-14 items-center justify-center">
+          <span
+            aria-hidden="true"
+            className="absolute inset-0 rounded-full bg-primary/5 ring-1 ring-inset ring-border-subtle"
+          />
+          <span
+            aria-hidden="true"
+            className="absolute inset-[6px] rounded-full bg-muted ring-1 ring-inset ring-border-subtle"
+          />
+          <Icon className="relative size-6 text-foreground-muted" />
         </div>
       )}
       <div className="flex flex-col items-center gap-1">

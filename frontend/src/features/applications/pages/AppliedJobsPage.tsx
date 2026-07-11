@@ -197,7 +197,7 @@ export default function AppliedJobsPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Applied Jobs"
+        title="My Applications"
         description="Track the status of every role you've applied to and withdraw applications you no longer want to pursue."
       />
 

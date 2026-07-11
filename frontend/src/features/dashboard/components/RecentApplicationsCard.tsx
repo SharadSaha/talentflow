@@ -42,7 +42,7 @@ function ApplicationRow({ application }: { application: Application }) {
 /** Lists the candidate's most recent applications with their current status. */
 export function RecentApplicationsCard({ applications }: RecentApplicationsCardProps) {
   return (
-    <Card>
+    <Card className="shadow-elevation-low">
       <CardHeader className="flex-row items-center justify-between gap-3">
         <CardTitle>Recent applications</CardTitle>
         {applications.length > 0 ? (

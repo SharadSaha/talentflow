@@ -47,8 +47,8 @@ export function JobCard({ job, layout = 'grid', className }: JobCardProps) {
     <Link
       to={candidateJobDetailsPath(job.id)}
       className={cn(
-        'group block rounded-lg border border-border bg-card p-5 outline-none transition-[transform,border-color] duration-200 ease-emphasized',
-        'hover:-translate-y-0.5 hover:border-primary/40 focus-visible:ring-2 focus-visible:ring-ring',
+        'group block rounded-lg border border-border bg-card p-5 shadow-elevation-low outline-none transition-[transform,border-color,box-shadow] duration-normal ease-emphasized',
+        'hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-elevation-medium focus-visible:ring-2 focus-visible:ring-ring',
         layout === 'list' && 'sm:flex sm:items-start sm:gap-5',
         className,
       )}
