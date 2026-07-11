@@ -107,6 +107,12 @@ interface ApplicantCandidateDto {
   education: ApplicantEducationDto[];
 }
 
+/** The job an applicant applied to, shown alongside each applicant. */
+interface ApplicantJobDto {
+  id: string;
+  title: string;
+}
+
 /** An applicant (application + candidate profile), as shown on the HR applicant board. */
 export interface ApplicantDto {
   id: string;
@@ -115,12 +121,13 @@ export interface ApplicantDto {
   resumeUrl: string | null;
   appliedAt: string;
   updatedAt: string;
+  job: ApplicantJobDto;
   candidate: ApplicantCandidateDto;
 }
 
-/** Maps an application (with candidate profile) to a public applicant DTO. */
+/** Maps an application (with candidate profile and job) to a public applicant DTO. */
 export function toApplicantDto(application: ApplicantWithProfile): ApplicantDto {
-  const { candidateProfile } = application;
+  const { candidateProfile, job } = application;
   return {
     id: application.id,
     status: application.status,
@@ -128,6 +135,10 @@ export function toApplicantDto(application: ApplicantWithProfile): ApplicantDto 
     resumeUrl: application.resumeUrl,
     appliedAt: application.createdAt.toISOString(),
     updatedAt: application.updatedAt.toISOString(),
+    job: {
+      id: job.id,
+      title: job.title,
+    },
     candidate: {
       id: candidateProfile.id,
       firstName: candidateProfile.user.firstName,

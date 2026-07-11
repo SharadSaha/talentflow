@@ -7,6 +7,7 @@ export const STORAGE_KEYS = {
   SIDEBAR_COLLAPSED: 'talentflow.sidebar-collapsed',
   USER_PREFERENCES: 'talentflow.user-preferences',
   ORGANIZATION_SETTINGS: 'talentflow.organization-settings',
+  JOB_BOOKMARKS: 'talentflow.job-bookmarks',
 } as const;
 
 export type StorageKey = (typeof STORAGE_KEYS)[keyof typeof STORAGE_KEYS];

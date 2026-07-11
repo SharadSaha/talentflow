@@ -31,6 +31,7 @@ export const APPLICATION_ROUTES = {
   BASE: '/applications',
   ROOT: '/',
   MINE: '/me',
+  HR_APPLICANTS: '/hr-applicants',
   STATUS: '/:id/status',
   WITHDRAW: '/:id/withdraw',
 } as const;

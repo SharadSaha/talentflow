@@ -116,6 +116,7 @@ export function makeApplicant(overrides: Partial<Applicant> = {}): Applicant {
       ],
       ...overrides.candidate,
     },
+    job: { id: 'job-1', title: 'Senior Frontend Engineer', ...overrides.job },
     ...overrides,
   };
 }

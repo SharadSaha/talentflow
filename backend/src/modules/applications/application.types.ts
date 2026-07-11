@@ -31,12 +31,26 @@ export interface ApplicantFilters {
   keyword?: string;
 }
 
-/** Query options for listing the applicants of a job. */
+/** Sort options shared by the per-job and cross-job applicant boards. */
+export interface ApplicantSort {
+  sortBy: 'createdAt' | 'updatedAt' | 'status' | 'experience';
+  sortOrder: SortOrder;
+}
+
+/** Query options for listing the applicants of a single job. */
 export interface ApplicantQuery {
   jobId: string;
   filters: ApplicantFilters;
   pagination: PaginationParams;
-  sort: { sortBy: 'createdAt' | 'updatedAt' | 'status' | 'experience'; sortOrder: SortOrder };
+  sort: ApplicantSort;
+}
+
+/** Query options for listing applicants across all jobs a given HR user owns. */
+export interface HrApplicantQuery {
+  hrUserId: string;
+  filters: ApplicantFilters;
+  pagination: PaginationParams;
+  sort: ApplicantSort;
 }
 
 /** Minimal application row plus its job's owner, used for authorization checks. */

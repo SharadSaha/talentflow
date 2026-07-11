@@ -10,6 +10,7 @@ import { applicationRepository } from './application.repository';
 import type { ApplicationRepository } from './application.repository';
 import type {
   ApplyInput,
+  HrApplicantsQueryInput,
   JobApplicantsQueryInput,
   MyApplicationsQueryInput,
   UpdateStatusInput,
@@ -104,6 +105,39 @@ export class ApplicationService {
 
     const { items, total } = await this.applications.findApplicants({
       jobId,
+      filters: {
+        status: query.status,
+        minExperienceMonths: query.minExperienceMonths,
+        maxExperienceMonths: query.maxExperienceMonths,
+        currentLocation: query.currentLocation,
+        preferredLocation: query.preferredLocation,
+        highestEducation: query.highestEducation,
+        college: query.college,
+        currentCompany: query.currentCompany,
+        skills: query.skills,
+        keyword: query.keyword,
+      },
+      pagination: { page: query.page, limit: query.limit },
+      sort: { sortBy: query.sortBy, sortOrder: query.sortOrder },
+    });
+
+    return {
+      items: items.map(toApplicantDto),
+      meta: buildPaginationMeta({ page: query.page, limit: query.limit, total }),
+    };
+  }
+
+  /**
+   * Lists applicants across every non-deleted job the authenticated HR user
+   * owns (the "All Jobs" applicant board). Authorization is enforced by scoping
+   * to the caller's own jobs via `postedById`.
+   */
+  async getHrApplicants(
+    userId: string,
+    query: HrApplicantsQueryInput,
+  ): Promise<Paginated<ApplicantDto>> {
+    const { items, total } = await this.applications.findHrApplicants({
+      hrUserId: userId,
       filters: {
         status: query.status,
         minExperienceMonths: query.minExperienceMonths,

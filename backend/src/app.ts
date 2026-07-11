@@ -2,7 +2,6 @@ import compression from 'compression';
 import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import express, { type Application, type Request, type Response } from 'express';
-import { rateLimit } from 'express-rate-limit';
 import helmet from 'helmet';
 import morgan from 'morgan';
 
@@ -10,6 +9,7 @@ import { corsOrigins, env, isTest } from '@/config/env';
 import { API_V1_PREFIX } from '@/constants/routes';
 import { errorHandler } from '@/middlewares/error-handler';
 import { notFound } from '@/middlewares/not-found';
+import { globalRateLimiter } from '@/middlewares/rate-limiter';
 import { v1Router } from '@/routes';
 
 /**
@@ -46,15 +46,8 @@ export function createApp(): Application {
     app.use(morgan(env.NODE_ENV === 'production' ? 'combined' : 'dev'));
   }
 
-  // Basic rate limiting.
-  app.use(
-    rateLimit({
-      windowMs: env.RATE_LIMIT_WINDOW_MS,
-      limit: env.RATE_LIMIT_MAX,
-      standardHeaders: 'draft-7',
-      legacyHeaders: false,
-    }),
-  );
+  // Basic rate limiting (coarse, applied to every request).
+  app.use(globalRateLimiter);
 
   // Health check — used by Docker/Compose and load balancers.
   app.get('/health', (_req: Request, res: Response) => {

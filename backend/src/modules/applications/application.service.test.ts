@@ -2,6 +2,7 @@ import { AuthorizationError, BadRequestError, ConflictError, NotFoundError } fro
 import { ApplicationStatus, JobStatus } from '@/generated/prisma/enums';
 
 import {
+  buildApplicantWithProfile,
   buildApplicationWithJob,
   CANDIDATE_PROFILE_ID,
   CANDIDATE_USER_ID,
@@ -10,6 +11,7 @@ import {
 } from '../../../tests/fixtures';
 import { ApplicationService } from './application.service';
 import type { ApplicationRepository } from './application.repository';
+import type { HrApplicantsQueryInput } from './application.schemas';
 
 describe('ApplicationService', () => {
   const buildRepository = () =>
@@ -21,6 +23,7 @@ describe('ApplicationService', () => {
       findOwnership: jest.fn(),
       findMyApplications: jest.fn(),
       findApplicants: jest.fn(),
+      findHrApplicants: jest.fn(),
       updateStatus: jest.fn(),
     }) satisfies ApplicationRepository;
 
@@ -114,6 +117,85 @@ describe('ApplicationService', () => {
 
       await expect(service.apply(CANDIDATE_USER_ID, { jobId: JOB_ID })).rejects.toThrow(
         ConflictError,
+      );
+    });
+  });
+
+  describe('getHrApplicants', () => {
+    const baseQuery: HrApplicantsQueryInput = {
+      page: 1,
+      limit: 20,
+      sortBy: 'createdAt',
+      sortOrder: 'desc',
+    };
+
+    it('scopes the repository query to the authenticated HR user', async () => {
+      const repository = buildRepository();
+      repository.findHrApplicants.mockResolvedValue({
+        items: [buildApplicantWithProfile()],
+        total: 1,
+      });
+      const service = new ApplicationService(repository);
+
+      const result = await service.getHrApplicants(HR_USER_ID, baseQuery);
+
+      expect(repository.findHrApplicants).toHaveBeenCalledWith(
+        expect.objectContaining({ hrUserId: HR_USER_ID }),
+      );
+      expect(result.items).toHaveLength(1);
+      expect(result.meta).toEqual(
+        expect.objectContaining({ page: 1, limit: 20, total: 1, totalPages: 1 }),
+      );
+    });
+
+    it('includes the owning job (id and title) on each applicant DTO', async () => {
+      const repository = buildRepository();
+      repository.findHrApplicants.mockResolvedValue({
+        items: [buildApplicantWithProfile()],
+        total: 1,
+      });
+      const service = new ApplicationService(repository);
+
+      const { items } = await service.getHrApplicants(HR_USER_ID, baseQuery);
+
+      expect(items[0]?.job).toEqual({ id: JOB_ID, title: 'Senior Full-Stack Engineer' });
+    });
+
+    it('forwards the status filter to the repository', async () => {
+      const repository = buildRepository();
+      repository.findHrApplicants.mockResolvedValue({ items: [], total: 0 });
+      const service = new ApplicationService(repository);
+
+      await service.getHrApplicants(HR_USER_ID, {
+        ...baseQuery,
+        status: ApplicationStatus.SHORTLISTED,
+      });
+
+      expect(repository.findHrApplicants).toHaveBeenCalledWith(
+        expect.objectContaining({
+          filters: expect.objectContaining({ status: ApplicationStatus.SHORTLISTED }),
+        }),
+      );
+    });
+
+    it('forwards pagination and sort options to the repository', async () => {
+      const repository = buildRepository();
+      repository.findHrApplicants.mockResolvedValue({ items: [], total: 0 });
+      const service = new ApplicationService(repository);
+
+      await service.getHrApplicants(HR_USER_ID, {
+        ...baseQuery,
+        page: 3,
+        limit: 5,
+        sortBy: 'experience',
+        sortOrder: 'asc',
+      });
+
+      expect(repository.findHrApplicants).toHaveBeenCalledWith(
+        expect.objectContaining({
+          pagination: { page: 3, limit: 5 },
+          sort: { sortBy: 'experience', sortOrder: 'asc' },
+        }),
       );
     });
   });

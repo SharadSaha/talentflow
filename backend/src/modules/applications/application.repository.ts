@@ -7,8 +7,10 @@ import { insensitiveContains } from '@/utils/prisma-search';
 import type {
   ApplicantFilters,
   ApplicantQuery,
+  ApplicantSort,
   ApplicationOwnership,
   CreateApplicationData,
+  HrApplicantQuery,
   JobApplyState,
   MyApplicationsQuery,
 } from './application.types';
@@ -37,8 +39,9 @@ export type ApplicationWithJob = Prisma.ApplicationGetPayload<{
   include: typeof applicationJobInclude;
 }>;
 
-/** Candidate profile loaded for the HR applicant board. */
+/** Candidate profile (and owning job) loaded for the HR applicant board. */
 const applicantInclude = {
+  job: { select: { id: true, title: true } },
   candidateProfile: {
     include: {
       user: { select: { id: true, email: true, firstName: true, lastName: true } },
@@ -121,9 +124,29 @@ function buildApplicantWhere(query: ApplicantQuery): Prisma.ApplicationWhereInpu
   return where;
 }
 
-function buildApplicantOrderBy(
-  sort: ApplicantQuery['sort'],
-): Prisma.ApplicationOrderByWithRelationInput {
+/**
+ * Scopes applications to the non-deleted jobs a given HR user owns and applies
+ * the shared status/candidate-profile filters. Mirrors `buildApplicantWhere`
+ * but keys off the owning HR user instead of a single job.
+ */
+function buildHrApplicantWhere(query: HrApplicantQuery): Prisma.ApplicationWhereInput {
+  const where: Prisma.ApplicationWhereInput = {
+    job: { postedById: query.hrUserId, deletedAt: null },
+  };
+
+  if (query.filters.status) {
+    where.status = query.filters.status;
+  }
+
+  const candidateFilter = buildCandidateProfileFilter(query.filters);
+  if (Object.keys(candidateFilter).length > 0) {
+    where.candidateProfile = candidateFilter;
+  }
+
+  return where;
+}
+
+function buildApplicantOrderBy(sort: ApplicantSort): Prisma.ApplicationOrderByWithRelationInput {
   if (sort.sortBy === 'experience') {
     return { candidateProfile: { totalExperienceMonths: sort.sortOrder } };
   }
@@ -143,6 +166,9 @@ export interface ApplicationRepository {
     query: MyApplicationsQuery,
   ): Promise<{ items: ApplicationWithJob[]; total: number }>;
   findApplicants(query: ApplicantQuery): Promise<{ items: ApplicantWithProfile[]; total: number }>;
+  findHrApplicants(
+    query: HrApplicantQuery,
+  ): Promise<{ items: ApplicantWithProfile[]; total: number }>;
   updateStatus(
     applicationId: string,
     status: ApplicationStatus,
@@ -228,6 +254,25 @@ class PrismaApplicationRepository implements ApplicationRepository {
     query: ApplicantQuery,
   ): Promise<{ items: ApplicantWithProfile[]; total: number }> {
     const where = buildApplicantWhere(query);
+
+    const [items, total] = await prisma.$transaction([
+      prisma.application.findMany({
+        where,
+        include: applicantInclude,
+        orderBy: buildApplicantOrderBy(query.sort),
+        skip: getPaginationSkip(query.pagination),
+        take: query.pagination.limit,
+      }),
+      prisma.application.count({ where }),
+    ]);
+
+    return { items, total };
+  }
+
+  async findHrApplicants(
+    query: HrApplicantQuery,
+  ): Promise<{ items: ApplicantWithProfile[]; total: number }> {
+    const where = buildHrApplicantWhere(query);
 
     const [items, total] = await prisma.$transaction([
       prisma.application.findMany({

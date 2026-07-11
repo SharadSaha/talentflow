@@ -1,6 +1,7 @@
 import { API_ENDPOINTS } from '@/constants/api';
 import type {
   Applicant,
+  ApplicantsQueryParams,
   JobApplicantsParams,
   UpdateApplicationStatusRequest,
 } from '@/types/applicant';
@@ -12,6 +13,15 @@ import { buildQueryString } from '@/utils/query-string';
 /** Serialises applicant filters into a query string (skills as CSV, jobId in path). */
 function toApplicantsQueryString(params: JobApplicantsParams): string {
   const { jobId: _jobId, skills, ...rest } = params;
+  return buildQueryString({
+    ...rest,
+    skills: skills && skills.length > 0 ? skills.join(',') : undefined,
+  });
+}
+
+/** Serialises the cross-job (All Jobs) applicant filters into a query string. */
+function toHrApplicantsQueryString(params: ApplicantsQueryParams): string {
+  const { skills, ...rest } = params;
   return buildQueryString({
     ...rest,
     skills: skills && skills.length > 0 ? skills.join(',') : undefined,
@@ -46,6 +56,27 @@ export const hrApplicantsApi = baseApi.injectEndpoints({
           : [{ type: CACHE_TAGS.Application, id: `JOB_${arg.jobId}` } as const],
     }),
 
+    getHrApplicants: builder.query<Paginated<Applicant>, ApplicantsQueryParams>({
+      query: (params) => {
+        const queryString = toHrApplicantsQueryString(params);
+        const base = API_ENDPOINTS.APPLICATIONS.HR_APPLICANTS;
+        return queryString ? `${base}?${queryString}` : base;
+      },
+      transformResponse: (response: ApiPaginatedResponse<Applicant>) => ({
+        items: response.data,
+        meta: response.meta,
+      }),
+      providesTags: (result) =>
+        result
+          ? [
+              ...result.items.map(
+                (applicant) => ({ type: CACHE_TAGS.Application, id: applicant.id }) as const,
+              ),
+              { type: CACHE_TAGS.Application, id: 'HR_ALL' } as const,
+            ]
+          : [{ type: CACHE_TAGS.Application, id: 'HR_ALL' } as const],
+    }),
+
     updateApplicationStatus: builder.mutation<Applicant, UpdateApplicationStatusRequest>({
       query: ({ applicationId, status, note }) => ({
         url: API_ENDPOINTS.APPLICATIONS.status(applicationId),
@@ -57,10 +88,15 @@ export const hrApplicantsApi = baseApi.injectEndpoints({
       invalidatesTags: (_result, _error, { applicationId }) => [
         { type: CACHE_TAGS.Application, id: applicationId },
         { type: CACHE_TAGS.Application, id: 'LIST' },
+        { type: CACHE_TAGS.Application, id: 'HR_ALL' },
         { type: CACHE_TAGS.Dashboard, id: 'HR' },
       ],
     }),
   }),
 });
 
-export const { useGetJobApplicantsQuery, useUpdateApplicationStatusMutation } = hrApplicantsApi;
+export const {
+  useGetJobApplicantsQuery,
+  useGetHrApplicantsQuery,
+  useUpdateApplicationStatusMutation,
+} = hrApplicantsApi;

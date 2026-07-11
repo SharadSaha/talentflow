@@ -209,6 +209,10 @@ export function buildApplicantWithProfile(
     resumeUrl: null,
     createdAt: FIXED_DATE,
     updatedAt: FIXED_DATE,
+    job: {
+      id: JOB_ID,
+      title: 'Senior Full-Stack Engineer',
+    },
     candidateProfile: {
       id: CANDIDATE_PROFILE_ID,
       userId: CANDIDATE_USER_ID,

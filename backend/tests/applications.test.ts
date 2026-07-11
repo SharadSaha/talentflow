@@ -7,6 +7,7 @@ jest.mock('@/modules/applications/application.repository', () => ({
     findOwnership: jest.fn(),
     findMyApplications: jest.fn(),
     findApplicants: jest.fn(),
+    findHrApplicants: jest.fn(),
     updateStatus: jest.fn(),
   },
 }));
@@ -130,6 +131,49 @@ describe('Applications API', () => {
         .set('Authorization', `Bearer ${candidateToken}`);
 
       expect(response.status).toBe(403);
+    });
+  });
+
+  describe('GET /api/v1/applications/hr-applicants', () => {
+    const HR_APPLICANTS_PATH = '/api/v1/applications/hr-applicants';
+
+    it('returns applicants across all of the HR user jobs with the owning job', async () => {
+      mockedRepository.findHrApplicants.mockResolvedValue({
+        items: [buildApplicantWithProfile()],
+        total: 1,
+      });
+
+      const response = await request(app)
+        .get(HR_APPLICANTS_PATH)
+        .set('Authorization', `Bearer ${hrToken}`);
+
+      expect(response.status).toBe(200);
+      expect(mockedRepository.findHrApplicants).toHaveBeenCalledWith(
+        expect.objectContaining({ hrUserId: HR_USER_ID }),
+      );
+      expect(response.body.data[0].candidate.email).toBe('candidate@example.com');
+      expect(response.body.data[0].job).toEqual({
+        id: JOB_ID,
+        title: 'Senior Full-Stack Engineer',
+      });
+      expect(response.body.meta.total).toBe(1);
+    });
+
+    it('forbids candidates from viewing the HR applicant board', async () => {
+      const response = await request(app)
+        .get(HR_APPLICANTS_PATH)
+        .set('Authorization', `Bearer ${candidateToken}`);
+
+      expect(response.status).toBe(403);
+      expect(mockedRepository.findHrApplicants).not.toHaveBeenCalled();
+    });
+
+    it('rejects an invalid sort field', async () => {
+      const response = await request(app)
+        .get(`${HR_APPLICANTS_PATH}?sortBy=salary`)
+        .set('Authorization', `Bearer ${hrToken}`);
+
+      expect(response.status).toBe(422);
     });
   });
 

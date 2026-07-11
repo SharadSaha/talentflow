@@ -1,4 +1,4 @@
-import { screen, waitFor } from '@testing-library/react';
+import { screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -50,15 +50,15 @@ describe('ApplicantsPage', () => {
     vi.restoreAllMocks();
   });
 
-  it('prompts to select a job when none is chosen', async () => {
+  it('defaults to "All Jobs" and lists applicants across every job', async () => {
     mockApi();
     renderApplicants('/hr/applicants');
 
     expect(screen.getByRole('heading', { level: 1, name: /applicants/i })).toBeInTheDocument();
-    await waitFor(() => expect(screen.queryByText('Ada Lovelace')).not.toBeInTheDocument());
+    expect(await screen.findByText('Ada Lovelace')).toBeInTheDocument();
   });
 
-  it('lists applicants for the selected job', async () => {
+  it('lists applicants for a selected job', async () => {
     mockApi();
     renderApplicants('/hr/applicants?job=job-1');
 

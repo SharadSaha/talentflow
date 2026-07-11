@@ -1,10 +1,18 @@
 import jwt from 'jsonwebtoken';
-import type { SignOptions } from 'jsonwebtoken';
+import type { Algorithm, SignOptions, VerifyOptions } from 'jsonwebtoken';
 
 import { env } from '@/config/env';
 import { AuthenticationError } from '@/errors';
 import { UserRole } from '@/generated/prisma/enums';
 import type { AuthUser, JwtPayload } from '@/types/auth';
+
+/**
+ * The single signing/verification algorithm the API supports. Pinning it
+ * explicitly (rather than relying on library defaults) prevents algorithm
+ * confusion and "alg: none" downgrade attacks: a token signed with any other
+ * algorithm is rejected during verification.
+ */
+const JWT_ALGORITHM: Algorithm = 'HS256';
 
 function isUserRole(value: unknown): value is UserRole {
   return typeof value === 'string' && (Object.values(UserRole) as string[]).includes(value);
@@ -24,7 +32,10 @@ function getJwtSecret(): string {
  */
 export function signAccessToken(user: AuthUser): string {
   const payload: JwtPayload = { sub: user.id, email: user.email, role: user.role };
-  const options: SignOptions = { expiresIn: env.JWT_EXPIRES_IN as SignOptions['expiresIn'] };
+  const options: SignOptions = {
+    algorithm: JWT_ALGORITHM,
+    expiresIn: env.JWT_EXPIRES_IN as SignOptions['expiresIn'],
+  };
 
   return jwt.sign(payload, getJwtSecret(), options);
 }
@@ -37,8 +48,10 @@ export function signAccessToken(user: AuthUser): string {
 export function verifyAccessToken(token: string): AuthUser {
   let decoded: string | jwt.JwtPayload;
 
+  const options: VerifyOptions = { algorithms: [JWT_ALGORITHM] };
+
   try {
-    decoded = jwt.verify(token, getJwtSecret());
+    decoded = jwt.verify(token, getJwtSecret(), options);
   } catch {
     throw new AuthenticationError('Invalid or expired authentication token.');
   }

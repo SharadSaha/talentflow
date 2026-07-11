@@ -8,6 +8,7 @@ import { getValidatedParams, getValidatedQuery } from '@/utils/validated-request
 import { applicationService } from './application.service';
 import type {
   ApplyInput,
+  HrApplicantsQueryInput,
   JobApplicantsQueryInput,
   MyApplicationsQueryInput,
   UpdateStatusInput,
@@ -57,6 +58,19 @@ export const getJobApplicants = asyncHandler(async (req, res) => {
   const { id } = getValidatedParams<IdParams>(req);
   const query = getValidatedQuery<JobApplicantsQueryInput>(req);
   const { items, meta } = await applicationService.getJobApplicants(authUser.id, id, query);
+  sendPaginated(res, { message: 'Applicants fetched successfully.', data: items, meta });
+});
+
+/**
+ * Lists applicants across all jobs the authenticated HR user owns ("All Jobs").
+ *
+ * @route GET /api/v1/applications/hr-applicants
+ * @access HR only (own jobs)
+ */
+export const getHrApplicants = asyncHandler(async (req, res) => {
+  const authUser = requireAuthUser(req);
+  const query = getValidatedQuery<HrApplicantsQueryInput>(req);
+  const { items, meta } = await applicationService.getHrApplicants(authUser.id, query);
   sendPaginated(res, { message: 'Applicants fetched successfully.', data: items, meta });
 });
 

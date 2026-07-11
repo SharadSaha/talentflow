@@ -20,6 +20,13 @@ function toJobsQueryString(params: JobListParams): string {
  * job. List results carry per-item + list tags so mutations elsewhere (e.g.
  * applying) can invalidate precisely.
  */
+/** Cache key for the browse list: every filter/sort arg EXCEPT the page, so
+ *  successive pages of the same query accumulate into one cache entry. */
+function serializeJobsCacheKey(params: JobListParams): string {
+  const { page: _page, ...rest } = params;
+  return toJobsQueryString(rest);
+}
+
 export const jobsApi = baseApi.injectEndpoints({
   endpoints: (builder) => ({
     getJobs: builder.query<Paginated<Job>, JobListParams>({
@@ -31,6 +38,21 @@ export const jobsApi = baseApi.injectEndpoints({
         items: response.data,
         meta: response.meta,
       }),
+      // Infinite scroll: one cache entry per filter/sort combination; page 1
+      // replaces, later pages append (de-duplicated). A page change on the same
+      // filters forces a refetch that feeds `merge`.
+      serializeQueryArgs: ({ queryArgs, endpointName }) =>
+        `${endpointName}(${serializeJobsCacheKey(queryArgs)})`,
+      merge: (currentCache, incoming, { arg }) => {
+        if ((arg.page ?? 1) <= 1) {
+          currentCache.items = incoming.items;
+        } else {
+          const seen = new Set(currentCache.items.map((job) => job.id));
+          currentCache.items.push(...incoming.items.filter((job) => !seen.has(job.id)));
+        }
+        currentCache.meta = incoming.meta;
+      },
+      forceRefetch: ({ currentArg, previousArg }) => currentArg?.page !== previousArg?.page,
       providesTags: (result) =>
         result
           ? [

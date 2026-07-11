@@ -8,8 +8,9 @@
 FROM node:22-alpine AS build
 WORKDIR /app
 
-# The API base URL is baked into the client bundle at build time.
-ARG VITE_API_BASE_URL=http://localhost:4000/api
+# The API base URL is baked into the client bundle at build time. The backend
+# mounts all routes under /api/v1, so the browser must target that prefix.
+ARG VITE_API_BASE_URL=http://localhost:4000/api/v1
 ARG VITE_APP_NAME=TalentFlow
 ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
 ENV VITE_APP_NAME=${VITE_APP_NAME}

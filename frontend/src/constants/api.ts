@@ -23,6 +23,7 @@ export const API_ENDPOINTS = {
   APPLICATIONS: {
     ROOT: '/applications',
     MINE: '/applications/me',
+    HR_APPLICANTS: '/applications/hr-applicants',
     status: (id: string) => `/applications/${id}/status`,
     withdraw: (id: string) => `/applications/${id}/withdraw`,
   },

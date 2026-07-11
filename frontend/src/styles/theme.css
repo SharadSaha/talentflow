@@ -3,8 +3,13 @@
  *
  * Every colour in the application derives from these variables — components must
  * never hardcode colours. Values are stored as raw HSL channels (e.g.
- * `240 10% 4%`) so Tailwind can apply alpha modifiers (`bg-primary/10`) via
+ * `220 20% 14%`) so Tailwind can apply alpha modifiers (`bg-primary/10`) via
  * `hsl(var(--token))`.
+ *
+ * Palette: a calm, enterprise slate/graphite system. The primary accent is a
+ * near-neutral graphite (dark in light mode, near-white in dark mode) rather
+ * than a saturated hue — status meaning is carried by the semantic colours.
+ * Neutrals share a single cool hue (220) so surfaces read as one family.
  *
  * `:root` defines the light theme (default). `.dark` overrides for dark mode.
  * The active theme is toggled by the `ThemeProvider`, which adds/removes the
@@ -12,75 +17,75 @@
  */
 
 :root {
-  /* Surfaces */
-  --background: 0 0% 100%;
-  --surface: 240 20% 99%;
+  /* Surfaces — layered off-white so cards lift off the page without shadow. */
+  --background: 220 24% 96.5%;
+  --surface: 220 20% 99%;
   --surface-elevated: 0 0% 100%;
-  --surface-hover: 240 12% 96%;
+  --surface-hover: 220 16% 93%;
 
   /* Foreground */
-  --foreground: 240 10% 12%;
-  --foreground-secondary: 240 6% 34%;
-  --foreground-muted: 240 4% 52%;
+  --foreground: 220 20% 14%;
+  --foreground-secondary: 220 12% 36%;
+  --foreground-muted: 220 10% 50%;
 
   /* Muted (subtle fills + secondary text on them) */
-  --muted: 240 12% 96%;
-  --muted-foreground: 240 4% 46%;
+  --muted: 220 16% 94%;
+  --muted-foreground: 220 10% 44%;
 
   /* Accent (hover / active surface for interactive rows and menu items) */
-  --accent: 240 12% 95%;
-  --accent-foreground: 240 10% 16%;
+  --accent: 220 16% 93%;
+  --accent-foreground: 220 20% 18%;
 
   /* Borders + focus ring */
-  --border: 240 8% 88%;
-  --border-subtle: 240 10% 92%;
-  --input: 240 8% 84%;
-  --ring: 224 76% 56%;
+  --border: 220 14% 87%;
+  --border-subtle: 220 16% 91%;
+  --input: 220 14% 83%;
+  --ring: 220 18% 42%;
 
-  /* Primary brand — refined royal/ocean blue */
-  --primary: 224 71% 48%;
-  --primary-hover: 224 71% 42%;
+  /* Primary brand — enterprise graphite */
+  --primary: 220 18% 22%;
+  --primary-hover: 220 20% 16%;
   --primary-foreground: 0 0% 100%;
   /* Low-emphasis primary tint for widget surfaces + soft badges. */
-  --primary-subtle: 224 70% 96%;
-  --primary-subtle-foreground: 224 64% 38%;
+  --primary-subtle: 220 20% 93%;
+  --primary-subtle-foreground: 220 20% 26%;
 
   /* Secondary (neutral surface action) */
-  --secondary: 240 12% 95%;
-  --secondary-foreground: 240 10% 20%;
+  --secondary: 220 16% 93%;
+  --secondary-foreground: 220 20% 20%;
 
-  /* Semantic status */
-  --success: 145 63% 38%;
+  /* Semantic status — muted, not neon, but clearly distinguishable */
+  --success: 152 45% 36%;
   --success-foreground: 0 0% 100%;
-  --warning: 38 92% 46%;
+  --warning: 35 80% 44%;
   --warning-foreground: 40 90% 12%;
-  --danger: 0 72% 50%;
+  --danger: 0 62% 48%;
   --danger-foreground: 0 0% 100%;
-  --info: 215 90% 54%;
+  --info: 210 55% 44%;
   --info-foreground: 0 0% 100%;
 
   /* Surfaces for composite components */
   --card: 0 0% 100%;
-  --card-foreground: 240 10% 12%;
+  --card-foreground: 220 20% 14%;
   --popover: 0 0% 100%;
-  --popover-foreground: 240 10% 12%;
+  --popover-foreground: 220 20% 14%;
 
   /* Sidebar / navigation */
-  --sidebar: 240 20% 99%;
-  --sidebar-foreground: 240 6% 34%;
-  --sidebar-border: 240 8% 90%;
-  --sidebar-accent: 224 60% 96%;
-  --sidebar-accent-foreground: 224 71% 46%;
+  --sidebar: 220 22% 97%;
+  --sidebar-foreground: 220 12% 36%;
+  --sidebar-border: 220 14% 89%;
+  --sidebar-accent: 220 16% 92%;
+  --sidebar-accent-foreground: 220 20% 22%;
 
   /* Skeleton loading placeholder */
-  --skeleton: 240 10% 92%;
+  --skeleton: 220 14% 90%;
 
-  /* Data-visualisation palette — anchored on the primary blue, cool + cohesive */
-  --chart-1: 224 71% 52%;
-  --chart-2: 197 82% 48%;
-  --chart-3: 173 58% 42%;
-  --chart-4: 38 92% 50%;
-  --chart-5: 265 70% 62%;
+  /* Data-visualisation palette — calm, neutral-forward with muted accents */
+  --chart-1: 220 18% 30%;
+  --chart-2: 210 20% 52%;
+  --chart-3: 195 24% 46%;
+  --chart-4: 35 55% 52%;
+  --chart-5: 220 10% 68%;
 
   /* Radius scale */
   --radius-xs: 4px;
@@ -91,7 +96,7 @@
 
   /* Elevation — subtle, cool-tinted shadows. Borders remain primary; shadows
      add depth only for surfaces that must lift off the page (widgets, menus). */
-  --shadow-color: 224 40% 28%;
+  --shadow-color: 220 25% 25%;
   --elevation-low:
     0 1px 2px hsl(var(--shadow-color) / 0.05), 0 1px 3px hsl(var(--shadow-color) / 0.06);
   --elevation-medium:
@@ -100,78 +105,78 @@
 }
 
 .dark {
-  /* Surfaces */
-  --background: 240 10% 4%;
-  --surface: 240 8% 7%;
-  --surface-elevated: 240 8% 10%;
-  --surface-hover: 240 8% 13%;
+  /* Surfaces — layered slate, never pure black. */
+  --background: 220 18% 8%;
+  --surface: 220 16% 11%;
+  --surface-elevated: 220 15% 14%;
+  --surface-hover: 220 14% 16%;
 
   /* Foreground */
-  --foreground: 0 0% 96%;
-  --foreground-secondary: 240 5% 72%;
-  --foreground-muted: 240 5% 56%;
+  --foreground: 220 16% 96%;
+  --foreground-secondary: 220 12% 74%;
+  --foreground-muted: 220 10% 58%;
 
   /* Muted */
-  --muted: 240 8% 12%;
-  --muted-foreground: 240 5% 62%;
+  --muted: 220 14% 16%;
+  --muted-foreground: 220 10% 62%;
 
   /* Accent */
-  --accent: 240 8% 14%;
-  --accent-foreground: 0 0% 96%;
+  --accent: 220 14% 17%;
+  --accent-foreground: 220 16% 96%;
 
   /* Borders + focus ring */
-  --border: 240 6% 18%;
-  --border-subtle: 240 6% 14%;
-  --input: 240 6% 22%;
-  --ring: 223 84% 68%;
+  --border: 220 12% 22%;
+  --border-subtle: 220 14% 17%;
+  --input: 220 12% 26%;
+  --ring: 220 16% 62%;
 
-  /* Primary brand — refined royal/ocean blue */
-  --primary: 223 84% 64%;
-  --primary-hover: 223 84% 70%;
-  --primary-foreground: 0 0% 100%;
+  /* Primary brand — near-white graphite for an inverted enterprise action */
+  --primary: 220 16% 90%;
+  --primary-hover: 220 16% 96%;
+  --primary-foreground: 220 24% 12%;
   /* Low-emphasis primary tint for widget surfaces + soft badges. */
-  --primary-subtle: 224 60% 16%;
-  --primary-subtle-foreground: 223 84% 78%;
+  --primary-subtle: 220 16% 18%;
+  --primary-subtle-foreground: 220 16% 88%;
 
   /* Secondary */
-  --secondary: 240 8% 14%;
-  --secondary-foreground: 0 0% 96%;
+  --secondary: 220 14% 17%;
+  --secondary-foreground: 220 16% 96%;
 
   /* Semantic status */
-  --success: 145 58% 45%;
-  --success-foreground: 145 80% 8%;
-  --warning: 39 92% 56%;
+  --success: 152 42% 46%;
+  --success-foreground: 152 80% 8%;
+  --warning: 35 80% 56%;
   --warning-foreground: 40 90% 10%;
-  --danger: 0 72% 56%;
+  --danger: 0 60% 56%;
   --danger-foreground: 0 0% 100%;
-  --info: 215 95% 64%;
-  --info-foreground: 215 90% 10%;
+  --info: 210 60% 62%;
+  --info-foreground: 210 90% 10%;
 
   /* Surfaces for composite components */
-  --card: 240 8% 7%;
-  --card-foreground: 0 0% 96%;
-  --popover: 240 8% 10%;
-  --popover-foreground: 0 0% 96%;
+  --card: 220 16% 11%;
+  --card-foreground: 220 16% 96%;
+  --popover: 220 15% 13%;
+  --popover-foreground: 220 16% 96%;
 
   /* Sidebar / navigation */
-  --sidebar: 240 8% 6%;
-  --sidebar-foreground: 240 5% 72%;
-  --sidebar-border: 240 6% 16%;
-  --sidebar-accent: 224 40% 18%;
-  --sidebar-accent-foreground: 223 84% 78%;
+  --sidebar: 220 18% 9%;
+  --sidebar-foreground: 220 12% 74%;
+  --sidebar-border: 220 12% 18%;
+  --sidebar-accent: 220 14% 16%;
+  --sidebar-accent-foreground: 220 16% 90%;
 
   /* Skeleton loading placeholder */
-  --skeleton: 240 8% 16%;
+  --skeleton: 220 14% 18%;
 
-  /* Data-visualisation palette — anchored on the primary blue, cool + cohesive */
-  --chart-1: 223 84% 66%;
-  --chart-2: 197 82% 58%;
-  --chart-3: 173 58% 50%;
-  --chart-4: 38 92% 60%;
-  --chart-5: 265 74% 72%;
+  /* Data-visualisation palette — calm, neutral-forward with muted accents */
+  --chart-1: 220 16% 82%;
+  --chart-2: 210 24% 66%;
+  --chart-3: 195 30% 60%;
+  --chart-4: 35 60% 62%;
+  --chart-5: 220 10% 50%;
 
   /* Elevation — deeper, near-black shadows read as real depth on dark surfaces. */
-  --shadow-color: 240 60% 2%;
+  --shadow-color: 220 50% 2%;
   --elevation-low:
     0 1px 2px hsl(var(--shadow-color) / 0.4), 0 1px 3px hsl(var(--shadow-color) / 0.3);
   --elevation-medium:

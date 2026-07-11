@@ -37,6 +37,12 @@ export interface ApplicantCandidate {
   education: ApplicantEducation[];
 }
 
+/** The job an applicant applied to (used by the "All Jobs" applicant board). */
+export interface ApplicantJob {
+  id: string;
+  title: string;
+}
+
 /**
  * An applicant to a job (application + candidate profile). `id` is the
  * application id used for status updates. Mirrors backend `ApplicantDto`.
@@ -49,7 +55,11 @@ export interface Applicant {
   appliedAt: string;
   updatedAt: string;
   candidate: ApplicantCandidate;
+  job: ApplicantJob;
 }
+
+/** Applicant filter/sort/paging parameters, independent of any specific job. */
+export type ApplicantsQueryParams = Omit<JobApplicantsParams, 'jobId'>;
 
 /** Query parameters + filters for a job's applicant board. */
 export interface JobApplicantsParams {

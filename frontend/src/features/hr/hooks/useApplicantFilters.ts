@@ -4,7 +4,7 @@ import { useSearchParams } from 'react-router-dom';
 import { APPLICATION_STATUS, type ApplicationStatus } from '@/constants/application-status';
 import { EDUCATION_LEVEL, type EducationLevel } from '@/constants/education';
 import { useDebounce } from '@/hooks/useDebounce';
-import type { JobApplicantsParams } from '@/types/applicant';
+import type { ApplicantsQueryParams } from '@/types/applicant';
 import type { SortOrder } from '@/types/pagination';
 
 /** Applicants requested per page from the job-applicants endpoint. */
@@ -48,8 +48,8 @@ export type ApplicantFilterValues = Record<ApplicantFilterKey, string>;
 
 /** Everything the applicants board needs to drive URL-synced search, filters, and sort. */
 export interface UseApplicantFiltersResult {
-  /** Derived params for `useGetJobApplicantsQuery` (empty values omitted, sort split, numbers parsed). */
-  params: JobApplicantsParams;
+  /** Derived filter/sort/paging params (job-agnostic; the caller adds `jobId` when needed). */
+  params: ApplicantsQueryParams;
   /** Current filter values (string-backed for form controls). */
   filters: ApplicantFilterValues;
   /** Current `field:order` sort string. */
@@ -92,12 +92,12 @@ function asEnumValue<TValue extends string>(
 
 /**
  * Reads and writes the applicant board's state from the URL query string so
- * search, filters, sort, and pagination survive refresh and are shareable. The
- * selected `job` param is always preserved. Any filter, search, or sort change
- * resets the page to 1; the keyword input is debounced. Applicants are
- * per-job, so `jobId` is folded into the derived params.
+ * search, filters, sort, and pagination survive refresh and are shareable. Any
+ * filter, search, or sort change resets the page to 1; the keyword input is
+ * debounced. `selectionKey` identifies the current job selection (a job id or
+ * the "All Jobs" sentinel) purely so switching selections clears the keyword.
  */
-export function useApplicantFilters(jobId: string): UseApplicantFiltersResult {
+export function useApplicantFilters(selectionKey: string): UseApplicantFiltersResult {
   const [searchParams, setSearchParams] = useSearchParams();
 
   const keyword = searchParams.get('keyword') ?? '';
@@ -121,15 +121,15 @@ export function useApplicantFilters(jobId: string): UseApplicantFiltersResult {
   const [searchInput, setSearchInput] = useState(keyword);
   const debouncedSearch = useDebounce(searchInput, SEARCH_DEBOUNCE_MS);
 
-  // Switching jobs clears the board's filters (and the keyword) — reset the
-  // immediate input so a stale keystroke isn't re-committed under the new job.
-  const previousJobId = useRef(jobId);
+  // Switching the selected job clears the board's filters (and the keyword) —
+  // reset the immediate input so a stale keystroke isn't re-committed.
+  const previousSelection = useRef(selectionKey);
   useEffect(() => {
-    if (previousJobId.current !== jobId) {
-      previousJobId.current = jobId;
+    if (previousSelection.current !== selectionKey) {
+      previousSelection.current = selectionKey;
       setSearchInput('');
     }
-  }, [jobId]);
+  }, [selectionKey]);
 
   const setParam = useCallback(
     (key: string, value: string, resetPage: boolean) => {
@@ -190,12 +190,11 @@ export function useApplicantFilters(jobId: string): UseApplicantFiltersResult {
     [filters],
   );
 
-  const params = useMemo<JobApplicantsParams>(() => {
+  const params = useMemo<ApplicantsQueryParams>(() => {
     const [sortBy, order] = sort.split(':');
     const sortOrder: SortOrder = order === 'asc' ? 'asc' : 'desc';
 
-    const next: JobApplicantsParams = {
-      jobId,
+    const next: ApplicantsQueryParams = {
       page,
       limit: APPLICANTS_PAGE_SIZE,
       sortBy,
@@ -225,7 +224,7 @@ export function useApplicantFilters(jobId: string): UseApplicantFiltersResult {
     if (skills.length > 0) next.skills = skills;
 
     return next;
-  }, [jobId, sort, page, keyword, filters]);
+  }, [sort, page, keyword, filters]);
 
   return {
     params,

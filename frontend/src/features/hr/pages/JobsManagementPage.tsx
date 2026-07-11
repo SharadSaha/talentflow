@@ -255,7 +255,7 @@ export default function JobsManagementPage() {
   );
 
   return (
-    <div className="space-y-6">
+    <div className="flex min-h-0 flex-1 flex-col gap-6">
       <PageHeader
         title="Jobs"
         description="Manage your job postings — track status, applicants, and details."
@@ -269,7 +269,7 @@ export default function JobsManagementPage() {
         }
       />
 
-      <div className="space-y-4">
+      <div className="flex min-h-0 flex-1 flex-col gap-4">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
           <SearchBar
             value={searchInput}
@@ -367,14 +367,20 @@ export default function JobsManagementPage() {
           {isLoading ? 'Loading jobs…' : `${formatNumber(total)} ${total === 1 ? 'job' : 'jobs'}`}
         </p>
 
-        <Card className="p-4">
-          <div className={cn(isFetching && !isLoading && 'opacity-60 transition-opacity')}>
+        <Card className="flex min-h-0 flex-1 flex-col p-4">
+          <div
+            className={cn(
+              'flex min-h-0 flex-1 flex-col',
+              isFetching && !isLoading && 'opacity-60 transition-opacity',
+            )}
+          >
             <DataTable<Job>
               columns={columns}
               data={data?.items ?? []}
               getRowId={(job) => job.id}
               isLoading={isLoading}
               emptyState={emptyState}
+              fillHeight
               pagination={
                 data && data.meta.totalPages > 1
                   ? { page, totalPages: data.meta.totalPages, onPageChange: setPage }

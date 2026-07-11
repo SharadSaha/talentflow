@@ -32,7 +32,7 @@ export function AppShell() {
               <div className="absolute -top-32 left-1/2 h-[360px] w-[820px] -translate-x-1/2 rounded-full bg-primary/[0.06] blur-[120px]" />
             </div>
 
-            <div className="relative mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+            <div className="relative mx-auto flex h-full w-full max-w-7xl flex-col px-4 py-6 sm:px-6 lg:px-8">
               <Suspense fallback={<FullPageLoader />}>
                 <Outlet />
               </Suspense>

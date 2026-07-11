@@ -53,6 +53,26 @@ services:
       timeout: 5s
       retries: 5
 
+  # One-shot init: applies migrations and seeds demo data before the API starts.
+  # Uses the backend build stage because it carries the Prisma CLI + tsx (both
+  # dev-only, absent from the slim runtime image). Runs to completion, then exits.
+  migrate:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: build
+    container_name: talentflow-migrate
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-talentflow}:${POSTGRES_PASSWORD:-talentflow}@postgres:5432/${POSTGRES_DB:-talentflow}?schema=public
+    command: ['sh', '-c', 'npx prisma migrate deploy && npm run prisma:seed']
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - talentflow
+    restart: 'no'
+
   backend:
     build:
       context: ./backend
@@ -74,6 +94,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     networks:
       - talentflow
 
@@ -82,7 +104,7 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:4000/api}
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:4000/api/v1}
         VITE_APP_NAME: ${VITE_APP_NAME:-TalentFlow}
     container_name: talentflow-frontend
     restart: unless-stopped

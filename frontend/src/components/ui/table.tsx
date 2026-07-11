@@ -6,19 +6,25 @@ import { cn } from '@/lib/utils';
  * A horizontally scrollable table surface. These are layout primitives only —
  * sorting, selection, and pagination belong to a higher-level data table.
  */
-export const Table = forwardRef<HTMLTableElement, React.HTMLAttributes<HTMLTableElement>>(
-  function Table({ className, ...props }, ref) {
-    return (
-      <div className="w-full overflow-x-auto">
-        <table
-          ref={ref}
-          className={cn('w-full caption-bottom border-collapse text-sm', className)}
-          {...props}
-        />
-      </div>
-    );
-  },
-);
+interface TableProps extends React.HTMLAttributes<HTMLTableElement> {
+  /** Overrides the scroll-container classes (e.g. to enable vertical fill/scroll). */
+  containerClassName?: string;
+}
+
+export const Table = forwardRef<HTMLTableElement, TableProps>(function Table(
+  { className, containerClassName, ...props },
+  ref,
+) {
+  return (
+    <div className={cn('w-full overflow-x-auto', containerClassName)}>
+      <table
+        ref={ref}
+        className={cn('w-full caption-bottom border-collapse text-sm', className)}
+        {...props}
+      />
+    </div>
+  );
+});
 
 /** Grouping element for the table's header rows. */
 export const TableHeader = forwardRef<

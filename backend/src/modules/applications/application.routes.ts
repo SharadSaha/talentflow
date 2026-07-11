@@ -9,6 +9,7 @@ import { validate } from '@/middlewares/validate';
 
 import {
   apply,
+  getHrApplicants,
   getJobApplicants,
   getMyApplications,
   updateApplicationStatus,
@@ -16,6 +17,7 @@ import {
 } from './application.controller';
 import {
   applySchema,
+  hrApplicantsQuerySchema,
   jobApplicantsQuerySchema,
   myApplicationsQuerySchema,
   updateStatusSchema,
@@ -24,10 +26,11 @@ import {
 /**
  * Application routes mounted under `/api/v1/applications`.
  *
- *   POST  /              — apply to a job (Candidate)
- *   GET   /me            — the candidate's own applications (Candidate)
- *   PATCH /:id/status    — update an applicant's status (HR owner)
- *   PATCH /:id/withdraw  — withdraw an application (Candidate owner)
+ *   POST  /                — apply to a job (Candidate)
+ *   GET   /me              — the candidate's own applications (Candidate)
+ *   GET   /hr-applicants   — applicants across all of the HR user's jobs (HR)
+ *   PATCH /:id/status      — update an applicant's status (HR owner)
+ *   PATCH /:id/withdraw    — withdraw an application (Candidate owner)
  */
 const applicationRouter = Router();
 
@@ -44,6 +47,13 @@ applicationRouter.get(
   authorize(UserRole.CANDIDATE),
   validate(myApplicationsQuerySchema),
   getMyApplications,
+);
+applicationRouter.get(
+  APPLICATION_ROUTES.HR_APPLICANTS,
+  authenticate,
+  authorize(UserRole.HR),
+  validate(hrApplicantsQuerySchema),
+  getHrApplicants,
 );
 applicationRouter.patch(
   APPLICATION_ROUTES.STATUS,

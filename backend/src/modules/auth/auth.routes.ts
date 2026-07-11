@@ -2,6 +2,7 @@ import { Router } from 'express';
 
 import { authenticate } from '@/auth/authenticate.middleware';
 import { AUTH_ROUTES } from '@/constants/routes';
+import { authRateLimiter } from '@/middlewares/rate-limiter';
 import { validate } from '@/middlewares/validate';
 
 import { getCurrentUser, login, register } from './auth.controller';
@@ -16,8 +17,8 @@ import { loginSchema, registerSchema } from './auth.schemas';
  */
 const router = Router();
 
-router.post(AUTH_ROUTES.REGISTER, validate(registerSchema), register);
-router.post(AUTH_ROUTES.LOGIN, validate(loginSchema), login);
+router.post(AUTH_ROUTES.REGISTER, authRateLimiter, validate(registerSchema), register);
+router.post(AUTH_ROUTES.LOGIN, authRateLimiter, validate(loginSchema), login);
 router.get(AUTH_ROUTES.ME, authenticate, getCurrentUser);
 
 export { router as authRouter };
