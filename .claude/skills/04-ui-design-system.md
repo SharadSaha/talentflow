@@ -1,682 +1,595 @@
-# UI Design System
+# Design System
 
 ## Objective
 
-Build a modern, elegant, enterprise-grade user interface inspired by products such as **Linear**, **Vercel Dashboard**, **Stripe Dashboard**, **GitHub**, and **Notion**.
+Build a premium, enterprise-grade design system inspired by the design philosophy of modern productivity software such as **Linear**, **Vercel**, **GitHub**, **Raycast**, **Notion**, and **Figma**.
 
-The goal is **not** to copy their interfaces, but to emulate their design philosophy:
+This is **not** a cloning exercise.
+
+Do not copy layouts, branding, illustrations, icons, proprietary assets, or exact implementations.
+
+Instead, adopt the same design principles:
 
 * Minimal
-* Functional
-* Consistent
+* Elegant
+* Dense but readable
 * Fast
 * Accessible
-* Information-dense without feeling cluttered
-* Production quality
+* Consistent
+* Calm
+* Professional
 
-Every screen should feel like it belongs to the same design system.
+The application should immediately feel like a polished SaaS product rather than an interview assignment.
 
 ---
 
 # Design Philosophy
 
-Always optimize for clarity.
+Every UI decision should optimize for
 
-Avoid unnecessary visual decoration.
+* Clarity
+* Speed
+* Consistency
+* Simplicity
+* Productivity
 
-Whitespace should communicate hierarchy.
+Avoid decorative UI.
 
-Use subtle animations instead of flashy effects.
+Avoid unnecessary visual effects.
 
-Prefer typography and spacing over excessive colors.
+Avoid trendy design patterns that reduce usability.
 
-Every interaction should feel responsive.
-
-Every component should have a consistent appearance across the application.
-
----
-
-# UI Stack
-
-Use the following libraries.
-
-* Tailwind CSS
-* shadcn/ui
-* Radix UI
-* Lucide React
-* class-variance-authority (CVA)
-* clsx
-* tailwind-merge
-
-Do not introduce additional component libraries.
-
-Every reusable component should be built on top of Radix primitives where appropriate.
+Every element should have a purpose.
 
 ---
 
-# Theme Architecture
+# Theme System
 
-The application must support a centralized theme system.
+The application must support
 
-Never hardcode colors inside components.
+* Light Theme
+* Dark Theme
 
-Every color should come from CSS variables.
+The theme must be driven entirely through CSS variables.
 
-Example theme tokens
+Never hardcode colors.
+
+Every component must consume semantic design tokens.
+
+---
+
+# Design Tokens
+
+## Background
 
 ```css
-:root {
-  --background:
-  --foreground:
-
-  --surface:
-  --surface-hover:
-
-  --card:
-  --card-foreground:
-
-  --primary:
-  --primary-foreground:
-
-  --secondary:
-  --secondary-foreground:
-
-  --muted:
-  --muted-foreground:
-
-  --accent:
-  --accent-foreground:
-
-  --success:
-  --warning:
-  --destructive:
-
-  --border:
-  --input:
-  --ring:
-
-  --radius:
-}
+--background: hsl(240 10% 4%);
+--surface: hsl(240 8% 7%);
+--surface-elevated: hsl(240 8% 10%);
+--surface-hover: hsl(240 8% 13%);
 ```
-
-Tailwind should reference these variables instead of fixed colors.
-
-Support both light and dark themes from day one.
-
-Use a ThemeProvider for theme management.
 
 ---
 
-# Color Philosophy
+## Foreground
 
-Keep the palette intentionally small.
+```css
+--foreground: hsl(0 0% 96%);
+--foreground-secondary: hsl(240 5% 72%);
+--foreground-muted: hsl(240 5% 56%);
+```
 
-Use color only to communicate meaning.
+---
 
-Examples
+## Borders
 
-Primary
+```css
+--border: hsl(240 6% 18%);
+--border-subtle: hsl(240 6% 14%);
+--ring: hsl(248 90% 72%);
+```
 
-Main actions.
+---
 
-Success
+## Primary
 
-Successful operations.
+```css
+--primary: hsl(248 90% 66%);
+--primary-hover: hsl(248 90% 62%);
+--primary-foreground: hsl(0 0% 100%);
+```
 
-Warning
+---
 
-Potential issues.
+## Semantic Colors
 
-Destructive
+```css
+--success: hsl(145 63% 42%);
+--warning: hsl(39 92% 56%);
+--danger: hsl(0 72% 56%);
+--info: hsl(215 95% 64%);
+```
 
-Dangerous actions.
+---
 
-Muted
+## Radius
 
-Secondary content.
+```css
+--radius-xs: 4px;
+--radius-sm: 6px;
+--radius-md: 8px;
+--radius-lg: 12px;
+--radius-xl: 16px;
+```
 
-Avoid multiple shades unless required.
+Avoid excessive border radius.
+
+The interface should feel precise rather than playful.
 
 ---
 
 # Typography
 
-Use **Inter** as the primary font.
+Use **Inter** as the primary typeface.
 
-Typography should establish hierarchy.
+Hierarchy
 
-Recommended scale
+```text
+Display
 
-* Display
-* H1
-* H2
-* H3
-* H4
-* Body Large
-* Body
-* Small
-* Caption
+H1
 
-Use font weight rather than excessive font sizes.
+H2
 
-Maintain consistent line heights.
+H3
 
-Avoid more than three font weights.
+Body
+
+Small
+
+Caption
+```
+
+Weights
+
+```text
+400
+
+500
+
+600
+```
+
+Use 700 only when absolutely necessary.
+
+Avoid all-caps except small labels.
 
 ---
 
 # Spacing System
 
-Use an 8-point spacing system.
+Use an 8-point spacing scale.
 
-Examples
-
+```text
 4
-
 8
-
 12
-
 16
-
+20
 24
-
 32
-
 40
-
 48
-
 64
+80
+96
+```
 
-Maintain consistent spacing throughout the application.
+Do not use arbitrary spacing values.
 
-Avoid arbitrary spacing values.
-
-Whitespace should communicate structure.
-
----
-
-# Border Radius
-
-Use a single radius scale.
-
-Examples
-
-Small
-
-Medium
-
-Large
-
-Extra Large
-
-Avoid inconsistent corner radii.
+Maintain consistent vertical rhythm throughout the application.
 
 ---
 
 # Shadows
 
-Keep shadows subtle.
+Prefer borders over shadows.
 
-Use elevation sparingly.
+Use subtle elevation only for
 
-Cards should rely more on borders than shadows.
+* Dialogs
+* Popovers
+* Dropdowns
 
-Avoid heavy drop shadows.
+Avoid large blurred shadows.
+
+---
+
+# Borders
+
+Borders should define hierarchy.
+
+Use subtle border colors.
+
+Cards should rely on borders rather than elevation.
 
 ---
 
 # Icons
 
-Use Lucide React exclusively.
+Use **Lucide React** exclusively.
 
-Icons should communicate intent.
+Icons should be
+
+* 16px
+* 18px
+* 20px
+
+depending on context.
 
 Avoid decorative icons.
 
-Maintain consistent icon sizes.
+Icons should improve recognition rather than decoration.
 
 ---
 
 # Animations
 
-Animations should feel fast.
+Animations should feel invisible.
 
-Use subtle transitions.
+Transition durations
 
-Examples
+```text
+Fast
 
-Hover
+120ms
 
-Focus
+Normal
 
-Open
+180ms
 
-Close
+Slow
 
-Loading
+250ms
+```
 
-Avoid excessive animations.
+Timing function
 
-Never animate purely for decoration.
+```css
+cubic-bezier(0.16, 1, 0.3, 1)
+```
 
----
+Animate
 
-# Layout System
-
-Create reusable layouts.
-
-Examples
-
-Auth Layout
-
-Dashboard Layout
-
-Public Layout
-
-Dashboard layout should contain
-
+* Hover
+* Focus
+* Dialog
+* Drawer
+* Dropdown
+* Tabs
 * Sidebar
-* Header
-* Main Content
-* Optional Right Panel
 
-Maintain consistent page padding.
+Avoid unnecessary page animations.
 
-Use responsive containers.
+Respect prefers-reduced-motion.
 
 ---
 
-# Component Hierarchy
+# Layout
 
-Follow this structure.
+Desktop-first.
 
-Primitive Components
+Responsive.
 
-↓
+Consistent page padding.
 
-UI Components
+Typical layout
 
-↓
-
-Business Components
-
-↓
-
-Containers
+```text
+Sidebar
 
 ↓
 
-Pages
+Top Navigation
 
-Business logic should never exist inside primitive UI components.
+↓
+
+Page Header
+
+↓
+
+Content
+
+↓
+
+Cards / Tables
+```
+
+Never place floating UI without purpose.
 
 ---
 
-# UI Components
+# Navigation
 
-The following components should form the design system.
+Navigation should remain visually subtle.
 
-Buttons
+Use
 
-Inputs
+* Icons
+* Labels
+* Active Indicator
 
-Textarea
+Avoid colorful sidebars.
 
-Label
+Navigation should not compete with page content.
 
-Checkbox
+---
 
-Radio Group
+# Cards
 
-Switch
+Cards should be
 
-Select
+* Flat
+* Clean
+* Bordered
+* Consistent
 
-Combobox
+Avoid heavy shadows.
 
-Autocomplete
+Avoid excessive padding.
 
-Badge
+Cards should integrate naturally with the layout.
 
-Avatar
+---
 
-Card
+# Tables
 
-Dialog
+Tables are first-class citizens.
 
-Drawer
+Every table should support
 
-Sheet
+* Sorting
+* Pagination
+* Search
+* Filters
+* Empty State
+* Loading State
+* Hover
+* Keyboard Navigation
 
-Popover
+Avoid zebra striping.
 
-Tooltip
-
-Dropdown Menu
-
-Tabs
-
-Accordion
-
-Separator
-
-Skeleton
-
-Spinner
-
-Toast
-
-Alert
-
-Progress
-
-Breadcrumb
-
-Pagination
-
-Data Table
-
-Empty State
-
-Loading State
-
-Error State
-
-Search Input
-
-Filter Panel
-
-Command Palette
-
-Every component should expose a consistent API.
+Hover should provide subtle feedback.
 
 ---
 
 # Buttons
 
-Support variants.
-
-Examples
+Support
 
 Primary
 
 Secondary
 
-Outline
-
 Ghost
-
-Link
 
 Destructive
 
-Support sizes.
+Loading
 
-Small
+Disabled
 
-Medium
+Every button must support
 
-Large
+* Keyboard navigation
+* Focus ring
+* Loading state
 
-Support loading state.
+Only one primary action should exist within a section.
 
-Support disabled state.
+---
 
-Support left and right icons.
+# Inputs
 
-Use CVA for variants.
+Inputs should
+
+* Be compact
+* Have subtle borders
+* Show elegant focus states
+* Support validation
+* Support helper text
+* Support disabled state
+
+Avoid oversized inputs.
 
 ---
 
 # Forms
 
-Every form should use
+Labels belong above inputs.
 
-React Hook Form
+Group related fields.
 
-*
-
-Zod
+Large forms should be divided into sections.
 
 Support
 
-Validation
+* Validation
+* Error messages
+* Success state
+* Disabled state
+* Loading state
 
-Loading
-
-Disabled submit
-
-Field-level errors
-
-Global errors
-
-Success feedback
-
-Never rely on browser validation.
+Use React Hook Form with Zod.
 
 ---
 
-# Data Tables
+# Search
 
-Data tables should support
+Search should support
 
-Sorting
+* Debouncing
+* Keyboard focus
+* Clear button
+* Search icon
 
-Pagination
+Search should feel instantaneous.
 
-Searching
+---
 
-Filtering
+# Filters
 
-Loading
+Filters should remain compact.
 
-Empty states
+Use
 
-Selection
+* Select
+* Multi-select
+* Checkbox
+* Date Picker
 
-Responsive behavior
+Collapse advanced filters where appropriate.
 
-Avoid building custom tables unless necessary.
+---
+
+# Feedback
+
+Every action should provide feedback.
+
+Use
+
+* Toast
+* Inline success
+* Inline validation
+
+Never leave users uncertain about the result of an action.
 
 ---
 
 # Loading States
 
-Never leave blank screens.
+Prefer skeleton loaders over full-page spinners.
 
-Use
+Preserve layout while loading.
 
-Skeletons
-
-Progress indicators
-
-Optimistic updates where appropriate
-
-Every async operation should provide user feedback.
+Avoid layout shifts.
 
 ---
 
 # Empty States
 
-Every list should have an empty state.
+Every empty state should explain
 
-Empty states should explain
+* Why it is empty
+* What the user should do next
 
-Why there is no data
+Avoid playful illustrations.
 
-What the user can do next
-
-Prefer illustrations only when they improve understanding.
-
----
-
-# Error States
-
-Display meaningful messages.
-
-Provide retry actions where appropriate.
-
-Avoid exposing technical errors.
-
----
-
-# Notifications
-
-Use toast notifications for
-
-Success
-
-Warning
-
-Errors
-
-Informational messages
-
-Avoid intrusive modals for simple confirmations.
+Keep messaging concise.
 
 ---
 
 # Accessibility
 
+Every component must support
+
+* Keyboard navigation
+* Focus indicators
+* Screen readers
+* Semantic HTML
+* ARIA attributes where appropriate
+* WCAG-compliant contrast ratios
+
 Accessibility is mandatory.
-
-Every interactive element should support keyboard navigation.
-
-Dialogs must trap focus.
-
-Buttons require accessible labels.
-
-Inputs require labels.
-
-Use semantic HTML before ARIA.
-
-Maintain WCAG-compliant contrast.
-
-Visible focus indicators are required.
 
 ---
 
 # Responsive Design
 
-Desktop-first.
-
 Support
-
-Mobile
-
-Tablet
 
 Desktop
 
-Large Desktop
+Tablet
 
-Avoid horizontal scrolling.
+Mobile
 
-Use responsive grids.
+Sidebar should collapse gracefully.
 
-Collapse navigation appropriately.
+Tables should remain usable.
 
----
-
-# Tailwind Guidelines
-
-Use utility classes.
-
-Avoid inline styles.
-
-Extract repeated class combinations into reusable components using CVA.
-
-Use
-
-clsx
-
-*
-
-tailwind-merge
-
-for conditional styling.
-
-Avoid class duplication.
-
----
-
-# Component Guidelines
-
-Every reusable component should
-
-Have explicit prop interfaces.
-
-Support forwarding refs where appropriate.
-
-Expose only necessary props.
-
-Avoid unnecessary abstractions.
-
-Avoid feature-specific logic.
-
-Prefer composition over inheritance.
-
-Keep components small and focused.
-
----
-
-# Design Consistency
-
-Maintain consistency across
-
-Spacing
-
-Typography
-
-Button sizes
-
-Icon sizes
-
-Border radius
-
-Shadows
-
-Animations
-
-Colors
-
-Every page should feel like part of the same product.
-
----
-
-# UX Principles
-
-Always optimize common user workflows.
-
-Reduce clicks where possible.
-
-Provide immediate feedback.
-
-Avoid blocking the user unnecessarily.
-
-Preserve user context.
-
-Remember filter and sorting preferences where appropriate.
-
-Prefer progressive disclosure over overwhelming the user.
+Avoid unnecessary horizontal scrolling.
 
 ---
 
 # Performance
 
-Lazy load large pages.
+Optimize perceived performance.
 
-Virtualize long lists.
+Use
 
-Optimize images.
+* Lazy loading
+* Code splitting
+* Virtualization where needed
+* Memoization
+* Optimistic updates
+* Skeleton loading
 
-Avoid unnecessary re-renders.
+Avoid blocking rendering.
 
-Memoize only when beneficial.
+---
 
-Keep interactions smooth.
+# Component Standards
+
+Every reusable component should
+
+* Support variants
+* Support sizes
+* Forward refs
+* Be fully typed
+* Support dark mode
+* Support accessibility
+* Contain no business logic
+
+Use
+
+* shadcn/ui
+* Radix UI
+* Tailwind CSS
+* class-variance-authority
+* tailwind-merge
+* clsx
+
+Build on top of these libraries rather than replacing them.
+
+---
+
+# Design Principles
+
+Always prefer
+
+* Borders over shadows
+* Typography over decoration
+* Simplicity over complexity
+* Consistency over novelty
+* Composition over duplication
+* Semantic colors over hardcoded values
+
+---
+
+# UX Principles
+
+Reduce clicks.
+
+Preserve user context.
+
+Remember user preferences where appropriate.
+
+Avoid unnecessary modals.
+
+Use progressive disclosure.
+
+Optimize common workflows.
 
 ---
 
@@ -684,20 +597,40 @@ Keep interactions smooth.
 
 Before considering any UI complete, verify
 
-* Uses the shared design system
-* Uses shadcn/ui and Radix primitives appropriately
-* Uses CSS theme variables
-* Supports light and dark themes
+* Uses only semantic CSS variables
 * No hardcoded colors
-* Fully responsive
+* Uses design tokens consistently
+* Uses the spacing scale
+* Uses typography hierarchy
+* Responsive on desktop, tablet, and mobile
+* Supports dark and light themes
 * Keyboard accessible
-* Proper loading states
-* Proper empty states
-* Proper error states
-* Consistent spacing
-* Consistent typography
-* Uses reusable components
-* No duplicated UI
-* Smooth transitions
-* Production-quality polish
-* Matches the overall Linear-inspired design language
+* Screen reader friendly
+* Includes loading state
+* Includes empty state
+* Includes error state
+* Includes disabled state
+* Uses reusable UI components
+* No duplicated styles
+* No inconsistent spacing
+* No inconsistent typography
+* No unnecessary visual effects
+* No layout shifts
+* Meets production-quality standards
+
+---
+
+# Final Goal
+
+The finished application should feel like a mature B2B SaaS product.
+
+The user experience should communicate
+
+* Precision
+* Performance
+* Reliability
+* Professionalism
+* Consistency
+* Trust
+
+If there is uncertainty between two design decisions, always choose the option that is simpler, cleaner, more restrained, and more consistent.

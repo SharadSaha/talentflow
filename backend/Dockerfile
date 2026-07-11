@@ -36,10 +36,10 @@ RUN apk add --no-cache openssl wget
 ENV NODE_ENV=production
 ENV PORT=4000
 
-# Production node_modules, compiled output, generated Prisma client & schema.
+# Production node_modules, compiled output (includes the generated Prisma client
+# under dist/generated), and the Prisma schema/migrations for `migrate deploy`.
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
-COPY --from=build /app/generated ./generated
 COPY --from=build /app/prisma ./prisma
 COPY --from=build /app/prisma.config.ts ./prisma.config.ts
 COPY package*.json ./

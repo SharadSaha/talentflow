@@ -8,6 +8,7 @@
   },
   "scripts": {
     "prepare": "husky",
+    "dev": "./run-local.sh",
     "dev:frontend": "npm --prefix frontend run dev",
     "dev:backend": "npm --prefix backend run dev",
     "install:all": "npm install && npm --prefix frontend install && npm --prefix backend install",

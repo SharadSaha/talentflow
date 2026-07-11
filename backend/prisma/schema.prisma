@@ -1,32 +1,397 @@
 // TalentFlow — Prisma schema
 // Docs: https://pris.ly/d/prisma-schema
 //
-// NOTE: Data models are intentionally NOT defined yet. This file only
-// configures the generator and datasource. Models (User, Job, Application, …)
-// will be added when features are implemented.
+// Design goals:
+//   * Normalized, production-ready relational model for a two-sided job portal.
+//   * Authentication identity (User) is separated from role-specific domain data
+//     (CandidateProfile / HrProfile) so each table stays cohesive.
+//   * Shared vocabularies (Company, Skill) are stored once and referenced.
+//   * Every HR/Candidate filter maps to an indexed column or a normalized join.
+//   * UUIDv7 primary keys (time-ordered → good B-tree locality) and the
+//     mandatory createdAt / updatedAt audit columns on every model.
 
 generator client {
-  provider = "prisma-client"
-  output   = "../generated/prisma"
+  // Emit the client inside `src/` so it is compiled to `dist/` by the app's
+  // TypeScript build (the Prisma 7 `prisma-client` generator emits TypeScript).
+  // The backend is a CommonJS package, so emit a CommonJS-compatible client.
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  runtime      = "nodejs"
+  moduleFormat = "cjs"
 }
 
 datasource db {
-  provider = "postgresql"
+  provider     = "postgresql"
+  relationMode = "foreignKeys"
   // The connection URL (DATABASE_URL) is configured in `prisma.config.ts`.
 }
 
 // ---------------------------------------------------------------------------
-// Models will be added here, e.g.:
-//
-// enum Role {
-//   HR
-//   CANDIDATE
-// }
-//
-// model User {
-//   id        String   @id @default(uuid())
-//   email     String   @unique
-//   role      Role
-//   createdAt DateTime @default(now())
-// }
+// Enums
 // ---------------------------------------------------------------------------
+
+/// Distinguishes the two supported personas. Drives role-based access control.
+enum UserRole {
+  HR
+  CANDIDATE
+}
+
+/// Employment arrangement for a job posting. Used by the candidate job filter.
+enum EmploymentType {
+  FULL_TIME
+  PART_TIME
+  CONTRACT
+  INTERNSHIP
+  TEMPORARY
+  FREELANCE
+}
+
+/// Seniority band for a job. Used by the candidate "Experience Level" filter.
+enum ExperienceLevel {
+  INTERNSHIP
+  ENTRY_LEVEL
+  MID_LEVEL
+  SENIOR
+  LEAD
+  EXECUTIVE
+}
+
+/// Where the work is performed. Complements the free-text location filter.
+enum LocationType {
+  ONSITE
+  REMOTE
+  HYBRID
+}
+
+/// Period a salary range refers to. Keeps salary numbers unambiguous.
+enum SalaryPeriod {
+  YEARLY
+  MONTHLY
+  HOURLY
+}
+
+/// Lifecycle of a job posting.
+///   DRAFT     — created but not visible to candidates.
+///   PUBLISHED — live and accepting applications.
+///   CLOSED    — no longer accepting applications ("Close Job"), still visible to HR.
+/// Deletion is handled via `Job.deletedAt` (soft delete) to preserve applicant history.
+enum JobStatus {
+  DRAFT
+  PUBLISHED
+  CLOSED
+}
+
+/// Progression of a candidate's application. Used by the HR "Status" filter and
+/// the applicant status-update workflow.
+enum ApplicationStatus {
+  APPLIED
+  UNDER_REVIEW
+  SHORTLISTED
+  INTERVIEW
+  OFFERED
+  HIRED
+  REJECTED
+  WITHDRAWN
+}
+
+/// Self-declared highest qualification. Used by the HR "Highest Education" filter.
+enum EducationLevel {
+  HIGH_SCHOOL
+  DIPLOMA
+  BACHELORS
+  MASTERS
+  DOCTORATE
+  OTHER
+}
+
+/// Candidate's self-assessed proficiency in a skill.
+enum ProficiencyLevel {
+  BEGINNER
+  INTERMEDIATE
+  ADVANCED
+  EXPERT
+}
+
+/// Coarse company headcount band. Powers company pages and future filtering.
+enum CompanySize {
+  STARTUP
+  SMALL
+  MEDIUM
+  LARGE
+  ENTERPRISE
+}
+
+// ---------------------------------------------------------------------------
+// Identity & role profiles
+// ---------------------------------------------------------------------------
+
+/// Single authentication identity for both personas. Role-specific attributes
+/// live in the 1:1 profile tables to keep this table narrow and cohesive.
+model User {
+  id           String   @id @default(uuid(7))
+  email        String   @unique
+  passwordHash String
+  firstName    String
+  lastName     String
+  role         UserRole
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  candidateProfile CandidateProfile?
+  hrProfile        HrProfile?
+  postedJobs       Job[]                    @relation("JobPostedBy")
+  statusChanges    ApplicationStatusEvent[] @relation("StatusChangedBy")
+
+  @@index([role])
+}
+
+/// Candidate-specific data (1:1 with a CANDIDATE user). Carries the self-declared,
+/// indexed summary attributes HR filters on, plus profile content used by the
+/// candidate profile screen. Detailed academic history lives in EducationEntry.
+model CandidateProfile {
+  id                    String          @id @default(uuid(7))
+  userId                String          @unique
+  headline              String?
+  about                 String?         @db.Text
+  phone                 String?
+  // Filterable summary attributes (self-declared, indexed for HR applicant search).
+  currentLocation       String?
+  preferredLocation     String?
+  currentCompany        String?
+  currentTitle          String?
+  totalExperienceMonths Int             @default(0)
+  highestEducation      EducationLevel?
+  // Compensation preferences (also used for future recommendation matching).
+  expectedSalaryMin     Int?
+  expectedSalaryMax     Int?
+  salaryCurrency        String          @default("INR")
+  noticePeriodDays      Int?
+  isOpenToWork          Boolean         @default(true)
+  // Hook for the future resume-upload feature; a URL keeps the schema unchanged.
+  resumeUrl             String?
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
+
+  user         User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  skills       CandidateSkill[]
+  education    EducationEntry[]
+  applications Application[]
+
+  @@index([currentLocation])
+  @@index([preferredLocation])
+  @@index([currentCompany])
+  @@index([highestEducation])
+  @@index([totalExperienceMonths])
+}
+
+/// HR-specific data (1:1 with an HR user), linked to the company they recruit for.
+model HrProfile {
+  id          String   @id @default(uuid(7))
+  userId      String   @unique
+  companyId   String
+  designation String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
+
+  @@index([companyId])
+}
+
+// ---------------------------------------------------------------------------
+// Reference / shared data
+// ---------------------------------------------------------------------------
+
+/// Employer entity, stored once and referenced by jobs and HR profiles.
+/// Rich enough to power the future "Company Pages" feature without migration.
+model Company {
+  id        String       @id @default(uuid(7))
+  name      String       @unique
+  slug      String       @unique
+  website   String?
+  logoUrl   String?
+  about     String?      @db.Text
+  industry  String?
+  size      CompanySize?
+  location  String?
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  jobs       Job[]
+  hrProfiles HrProfile[]
+
+  @@index([industry])
+}
+
+/// Canonical skill vocabulary. Referenced by both jobs and candidates through
+/// join tables so each skill (e.g. "React") is stored exactly once.
+model Skill {
+  id        String   @id @default(uuid(7))
+  name      String   @unique
+  slug      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  jobs       JobSkill[]
+  candidates CandidateSkill[]
+}
+
+// ---------------------------------------------------------------------------
+// Jobs
+// ---------------------------------------------------------------------------
+
+/// A job posting owned by a Company and posted by an HR user. Every candidate
+/// job-filter maps to an indexed column here. Soft-deleted via `deletedAt` so
+/// that deleting a job never orphans the applications attached to it.
+model Job {
+  id                 String          @id @default(uuid(7))
+  companyId          String
+  postedById         String
+  title              String
+  description        String          @db.Text
+  employmentType     EmploymentType
+  experienceLevel    ExperienceLevel
+  locationType       LocationType    @default(ONSITE)
+  location           String?
+  minExperienceYears Int?
+  maxExperienceYears Int?
+  salaryMin          Int?
+  salaryMax          Int?
+  salaryCurrency     String          @default("INR")
+  salaryPeriod       SalaryPeriod    @default(YEARLY)
+  openings           Int             @default(1)
+  status             JobStatus       @default(DRAFT)
+  publishedAt        DateTime?
+  expiresAt          DateTime?
+  deletedAt          DateTime?
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+
+  company      Company       @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  postedBy     User          @relation("JobPostedBy", fields: [postedById], references: [id], onDelete: Restrict)
+  skills       JobSkill[]
+  applications Application[]
+
+  @@index([companyId])
+  @@index([postedById])
+  @@index([status])
+  @@index([employmentType])
+  @@index([experienceLevel])
+  @@index([locationType])
+  @@index([location])
+  @@index([createdAt])
+  @@index([deletedAt])
+  // Composite index for the primary browse query: live jobs, newest first.
+  @@index([status, deletedAt, createdAt])
+}
+
+/// Normalized M:N between Job and Skill. `isRequired` distinguishes must-have
+/// skills from nice-to-haves and supports future match scoring.
+model JobSkill {
+  id         String   @id @default(uuid(7))
+  jobId      String
+  skillId    String
+  isRequired Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  job   Job   @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  skill Skill @relation(fields: [skillId], references: [id], onDelete: Restrict)
+
+  @@unique([jobId, skillId])
+  @@index([skillId])
+}
+
+// ---------------------------------------------------------------------------
+// Candidate detail (normalized history)
+// ---------------------------------------------------------------------------
+
+/// Normalized M:N between CandidateProfile and Skill. Powers the HR "Skills"
+/// filter and future candidate/job match scoring.
+model CandidateSkill {
+  id                 String            @id @default(uuid(7))
+  candidateProfileId String
+  skillId            String
+  proficiency        ProficiencyLevel?
+  yearsOfExperience  Int?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+
+  candidateProfile CandidateProfile @relation(fields: [candidateProfileId], references: [id], onDelete: Cascade)
+  skill            Skill            @relation(fields: [skillId], references: [id], onDelete: Restrict)
+
+  @@unique([candidateProfileId, skillId])
+  @@index([skillId])
+}
+
+/// Academic history for a candidate. `institution` is the authoritative home for
+/// the HR "College" filter; the self-declared summary lives on CandidateProfile.
+model EducationEntry {
+  id                 String         @id @default(uuid(7))
+  candidateProfileId String
+  institution        String
+  degree             String?
+  level              EducationLevel
+  fieldOfStudy       String?
+  startYear          Int?
+  endYear            Int?
+  grade              String?
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+
+  candidateProfile CandidateProfile @relation(fields: [candidateProfileId], references: [id], onDelete: Cascade)
+
+  @@index([candidateProfileId])
+  @@index([institution])
+  @@index([level])
+}
+
+// ---------------------------------------------------------------------------
+// Applications
+// ---------------------------------------------------------------------------
+
+/// Resolves the M:N between candidates and jobs and records the hiring pipeline
+/// state. The unique (jobId, candidateProfileId) constraint blocks duplicate
+/// applications. A resume URL snapshot preserves what was submitted at apply time.
+model Application {
+  id                 String            @id @default(uuid(7))
+  jobId              String
+  candidateProfileId String
+  status             ApplicationStatus @default(APPLIED)
+  coverLetter        String?           @db.Text
+  resumeUrl          String?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+
+  job              Job                      @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  candidateProfile CandidateProfile         @relation(fields: [candidateProfileId], references: [id], onDelete: Cascade)
+  statusEvents     ApplicationStatusEvent[]
+
+  @@unique([jobId, candidateProfileId])
+  @@index([jobId])
+  @@index([candidateProfileId])
+  @@index([status])
+  @@index([createdAt])
+  // Composite index for the HR applicant board: applicants of a job by status.
+  @@index([jobId, status])
+}
+
+/// Append-only audit trail of application status transitions. Implements the
+/// applicant timeline and is the extension point for interviews/notifications.
+model ApplicationStatusEvent {
+  id            String            @id @default(uuid(7))
+  applicationId String
+  status        ApplicationStatus
+  note          String?           @db.Text
+  changedById   String?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  changedBy   User?       @relation("StatusChangedBy", fields: [changedById], references: [id], onDelete: SetNull)
+
+  @@index([applicationId])
+  @@index([createdAt])
+}
