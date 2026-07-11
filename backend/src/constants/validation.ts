@@ -34,3 +34,26 @@ export const MAX_EXPERIENCE_MONTHS = 720;
 
 /** One year expressed in days — a generous upper bound for a notice period. */
 export const MAX_NOTICE_PERIOD_DAYS = 365;
+
+/**
+ * Matches a UUID of any version (1–8). The schema uses time-ordered UUIDv7
+ * identifiers, whose version nibble (`7`) the stricter 1–5 UUID patterns reject.
+ */
+export const UUID_PATTERN =
+  /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/;
+
+/** Bounds for job posting text fields. */
+export const JOB_TITLE_MAX_LENGTH = 150;
+export const JOB_DESCRIPTION_MAX_LENGTH = 10000;
+
+/** Bounds for application text fields. */
+export const COVER_LETTER_MAX_LENGTH = 5000;
+export const STATUS_NOTE_MAX_LENGTH = 1000;
+
+/** Bounds for job compensation and headcount. */
+export const MAX_SALARY = 1_000_000_000;
+export const MAX_EXPERIENCE_YEARS = 60;
+export const MAX_OPENINGS = 10_000;
+
+/** Keyword search bounds. */
+export const SEARCH_TERM_MAX_LENGTH = 200;

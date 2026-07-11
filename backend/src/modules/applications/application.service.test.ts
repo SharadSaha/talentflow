@@ -1,0 +1,225 @@
+import { AuthorizationError, BadRequestError, ConflictError, NotFoundError } from '@/errors';
+import { ApplicationStatus, JobStatus } from '@/generated/prisma/enums';
+
+import {
+  buildApplicationWithJob,
+  CANDIDATE_PROFILE_ID,
+  CANDIDATE_USER_ID,
+  HR_USER_ID,
+  JOB_ID,
+} from '../../../tests/fixtures';
+import { ApplicationService } from './application.service';
+import type { ApplicationRepository } from './application.repository';
+
+describe('ApplicationService', () => {
+  const buildRepository = () =>
+    ({
+      create: jest.fn(),
+      findExistingApplication: jest.fn(),
+      findCandidateProfileIdByUserId: jest.fn(),
+      findJobApplyState: jest.fn(),
+      findOwnership: jest.fn(),
+      findMyApplications: jest.fn(),
+      findApplicants: jest.fn(),
+      updateStatus: jest.fn(),
+    }) satisfies ApplicationRepository;
+
+  const liveJob = {
+    id: JOB_ID,
+    status: JobStatus.PUBLISHED,
+    deletedAt: null,
+    postedById: HR_USER_ID,
+  };
+
+  describe('apply', () => {
+    it('creates an application for a live job', async () => {
+      const repository = buildRepository();
+      repository.findCandidateProfileIdByUserId.mockResolvedValue(CANDIDATE_PROFILE_ID);
+      repository.findJobApplyState.mockResolvedValue(liveJob);
+      repository.findExistingApplication.mockResolvedValue(null);
+      repository.create.mockResolvedValue(buildApplicationWithJob());
+      const service = new ApplicationService(repository);
+
+      const application = await service.apply(CANDIDATE_USER_ID, { jobId: JOB_ID });
+
+      expect(application.status).toBe(ApplicationStatus.APPLIED);
+      expect(repository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ jobId: JOB_ID, candidateProfileId: CANDIDATE_PROFILE_ID }),
+      );
+    });
+
+    it('throws NotFound when the candidate has no profile', async () => {
+      const repository = buildRepository();
+      repository.findCandidateProfileIdByUserId.mockResolvedValue(null);
+      const service = new ApplicationService(repository);
+
+      await expect(service.apply(CANDIDATE_USER_ID, { jobId: JOB_ID })).rejects.toThrow(
+        NotFoundError,
+      );
+    });
+
+    it('throws NotFound when the job is deleted', async () => {
+      const repository = buildRepository();
+      repository.findCandidateProfileIdByUserId.mockResolvedValue(CANDIDATE_PROFILE_ID);
+      repository.findJobApplyState.mockResolvedValue({ ...liveJob, deletedAt: new Date() });
+      const service = new ApplicationService(repository);
+
+      await expect(service.apply(CANDIDATE_USER_ID, { jobId: JOB_ID })).rejects.toThrow(
+        NotFoundError,
+      );
+    });
+
+    it('rejects applying to a non-published job', async () => {
+      const repository = buildRepository();
+      repository.findCandidateProfileIdByUserId.mockResolvedValue(CANDIDATE_PROFILE_ID);
+      repository.findJobApplyState.mockResolvedValue({ ...liveJob, status: JobStatus.CLOSED });
+      const service = new ApplicationService(repository);
+
+      await expect(service.apply(CANDIDATE_USER_ID, { jobId: JOB_ID })).rejects.toThrow(
+        ConflictError,
+      );
+    });
+
+    it('rejects applying to a job the user posted', async () => {
+      const repository = buildRepository();
+      repository.findCandidateProfileIdByUserId.mockResolvedValue(CANDIDATE_PROFILE_ID);
+      repository.findJobApplyState.mockResolvedValue({ ...liveJob, postedById: CANDIDATE_USER_ID });
+      const service = new ApplicationService(repository);
+
+      await expect(service.apply(CANDIDATE_USER_ID, { jobId: JOB_ID })).rejects.toThrow(
+        AuthorizationError,
+      );
+    });
+
+    it('rejects a duplicate application', async () => {
+      const repository = buildRepository();
+      repository.findCandidateProfileIdByUserId.mockResolvedValue(CANDIDATE_PROFILE_ID);
+      repository.findJobApplyState.mockResolvedValue(liveJob);
+      repository.findExistingApplication.mockResolvedValue({ id: 'existing' });
+      const service = new ApplicationService(repository);
+
+      await expect(service.apply(CANDIDATE_USER_ID, { jobId: JOB_ID })).rejects.toThrow(
+        ConflictError,
+      );
+      expect(repository.create).not.toHaveBeenCalled();
+    });
+
+    it('maps a unique-constraint race to a ConflictError', async () => {
+      const repository = buildRepository();
+      repository.findCandidateProfileIdByUserId.mockResolvedValue(CANDIDATE_PROFILE_ID);
+      repository.findJobApplyState.mockResolvedValue(liveJob);
+      repository.findExistingApplication.mockResolvedValue(null);
+      repository.create.mockRejectedValue({ code: 'P2002' });
+      const service = new ApplicationService(repository);
+
+      await expect(service.apply(CANDIDATE_USER_ID, { jobId: JOB_ID })).rejects.toThrow(
+        ConflictError,
+      );
+    });
+  });
+
+  describe('updateStatus', () => {
+    const ownedApplication = {
+      id: 'app-id',
+      status: ApplicationStatus.APPLIED,
+      candidateProfileId: CANDIDATE_PROFILE_ID,
+      job: { postedById: HR_USER_ID, deletedAt: null },
+    };
+
+    it('advances the status through a valid transition', async () => {
+      const repository = buildRepository();
+      repository.findOwnership.mockResolvedValue(ownedApplication);
+      repository.updateStatus.mockResolvedValue(
+        buildApplicationWithJob({ status: ApplicationStatus.UNDER_REVIEW }),
+      );
+      const service = new ApplicationService(repository);
+
+      const application = await service.updateStatus(HR_USER_ID, 'app-id', {
+        status: ApplicationStatus.UNDER_REVIEW,
+      });
+
+      expect(application.status).toBe(ApplicationStatus.UNDER_REVIEW);
+      expect(repository.updateStatus).toHaveBeenCalledWith(
+        'app-id',
+        ApplicationStatus.UNDER_REVIEW,
+        HR_USER_ID,
+        undefined,
+      );
+    });
+
+    it('rejects an invalid transition', async () => {
+      const repository = buildRepository();
+      repository.findOwnership.mockResolvedValue(ownedApplication);
+      const service = new ApplicationService(repository);
+
+      await expect(
+        service.updateStatus(HR_USER_ID, 'app-id', { status: ApplicationStatus.HIRED }),
+      ).rejects.toThrow(BadRequestError);
+      expect(repository.updateStatus).not.toHaveBeenCalled();
+    });
+
+    it('rejects updates for a job owned by another HR user', async () => {
+      const repository = buildRepository();
+      repository.findOwnership.mockResolvedValue({
+        ...ownedApplication,
+        job: { postedById: 'another-hr', deletedAt: null },
+      });
+      const service = new ApplicationService(repository);
+
+      await expect(
+        service.updateStatus(HR_USER_ID, 'app-id', { status: ApplicationStatus.UNDER_REVIEW }),
+      ).rejects.toThrow(AuthorizationError);
+    });
+  });
+
+  describe('withdraw', () => {
+    it('withdraws the candidate own active application', async () => {
+      const repository = buildRepository();
+      repository.findCandidateProfileIdByUserId.mockResolvedValue(CANDIDATE_PROFILE_ID);
+      repository.findOwnership.mockResolvedValue({
+        id: 'app-id',
+        status: ApplicationStatus.APPLIED,
+        candidateProfileId: CANDIDATE_PROFILE_ID,
+        job: { postedById: HR_USER_ID, deletedAt: null },
+      });
+      repository.updateStatus.mockResolvedValue(
+        buildApplicationWithJob({ status: ApplicationStatus.WITHDRAWN }),
+      );
+      const service = new ApplicationService(repository);
+
+      const application = await service.withdraw(CANDIDATE_USER_ID, 'app-id');
+
+      expect(application.status).toBe(ApplicationStatus.WITHDRAWN);
+    });
+
+    it('rejects withdrawing another candidate application', async () => {
+      const repository = buildRepository();
+      repository.findCandidateProfileIdByUserId.mockResolvedValue(CANDIDATE_PROFILE_ID);
+      repository.findOwnership.mockResolvedValue({
+        id: 'app-id',
+        status: ApplicationStatus.APPLIED,
+        candidateProfileId: 'another-candidate',
+        job: { postedById: HR_USER_ID, deletedAt: null },
+      });
+      const service = new ApplicationService(repository);
+
+      await expect(service.withdraw(CANDIDATE_USER_ID, 'app-id')).rejects.toThrow(
+        AuthorizationError,
+      );
+    });
+
+    it('rejects withdrawing a terminal application', async () => {
+      const repository = buildRepository();
+      repository.findCandidateProfileIdByUserId.mockResolvedValue(CANDIDATE_PROFILE_ID);
+      repository.findOwnership.mockResolvedValue({
+        id: 'app-id',
+        status: ApplicationStatus.HIRED,
+        candidateProfileId: CANDIDATE_PROFILE_ID,
+        job: { postedById: HR_USER_ID, deletedAt: null },
+      });
+      const service = new ApplicationService(repository);
+
+      await expect(service.withdraw(CANDIDATE_USER_ID, 'app-id')).rejects.toThrow(BadRequestError);
+    });
+  });
+});

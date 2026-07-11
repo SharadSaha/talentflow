@@ -33,6 +33,10 @@ export function validate(schema: ZodType): RequestHandler {
 
     const parsed = result.data as ParsedRequest;
 
+    // Surface parsed (coerced/defaulted) values. `req.query`/`req.params` are
+    // read-only getters in Express 5, so they are exposed via `req.validated`.
+    req.validated = { body: parsed.body, query: parsed.query, params: parsed.params };
+
     if (parsed.body !== undefined) {
       req.body = parsed.body;
     }

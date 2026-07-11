@@ -25,7 +25,17 @@ Base URL: `http://localhost:4000/api/v1`
 
 ### Status codes
 
-`200` OK · `201` Created · `401` Unauthorized · `403` Forbidden · `404` Not Found · `409` Conflict · `422` Validation failed · `500` Internal Server Error.
+`200` OK · `201` Created · `400` Bad Request · `401` Unauthorized · `403` Forbidden · `404` Not Found · `409` Conflict · `422` Validation failed · `500` Internal Server Error.
+
+### Paginated responses
+
+List endpoints return the items in `data` plus a `meta` object:
+
+```json
+{ "success": true, "message": "...", "data": [], "meta": { "page": 1, "limit": 10, "total": 0, "totalPages": 0, "hasNext": false, "hasPrevious": false } }
+```
+
+Common query params: `page`, `limit` (max 100), `sortBy`, `sortOrder` (`asc`/`desc`).
 
 ---
 
@@ -86,9 +96,81 @@ Updates the authenticated candidate's profile. Only whitelisted fields are accep
 
 ---
 
-## Planned endpoints
+## Jobs
 
-- [ ] `GET  /api/v1/jobs`, `POST /api/v1/jobs` _(HR)_
-- [ ] `POST /api/v1/applications` _(Candidate)_
-- [ ] HR dashboard, applicant search & filters
-- [ ] ...
+A job is "live" when `status = PUBLISHED` and it is not deleted. Only the HR
+owner may edit/close/delete a job; deletion is a soft delete that preserves
+applications.
+
+### `POST /api/v1/jobs` — create a job _(HR)_
+
+Body: `title`, `description`, `employmentType`, `experienceLevel`, `workMode`
+(`ONSITE`/`REMOTE`/`HYBRID`), optional `location`, `minExperienceYears`,
+`maxExperienceYears`, `salaryMin`, `salaryMax`, `salaryCurrency`, `salaryPeriod`,
+`openings`, `status` (`DRAFT`/`PUBLISHED`, default `PUBLISHED`), and
+`skills: [{ slug, isRequired? }]`. → `201 { job }`.
+
+### `GET /api/v1/jobs` — browse live jobs _(Authenticated)_
+
+Filters: `keyword` (title/description/skills/company/location), `location`,
+`employmentType`, `experienceLevel`, `workMode`, `salaryMin`, `salaryMax`,
+`skills` (csv), `company`. Sort: `createdAt`, `updatedAt`, `salary`, `title`,
+`company`. → `200 { data: Job[], meta }`.
+
+### `GET /api/v1/jobs/:id` — job details _(Authenticated)_
+
+Live jobs are visible to anyone; draft/closed jobs only to the HR owner (else `404`).
+
+### `PATCH /api/v1/jobs/:id` — edit or close a job _(HR owner)_
+
+Any create field plus `status` (`DRAFT`/`PUBLISHED`/`CLOSED` — closing a job sets `CLOSED`). → `200 { job }`.
+
+### `DELETE /api/v1/jobs/:id` — soft-delete a job _(HR owner)_ → `200 { id }`.
+
+### `GET /api/v1/hr/jobs` — the HR user's own jobs (any status) _(HR)_ → `200 { data: Job[], meta }`.
+
+---
+
+## Applications
+
+Status pipeline: `APPLIED → UNDER_REVIEW → SHORTLISTED → INTERVIEW → OFFERED →
+HIRED`, with `REJECTED` reachable from any active state and `WITHDRAWN` set by
+the candidate. Invalid transitions return `400`.
+
+### `POST /api/v1/applications` — apply to a job _(Candidate)_
+
+Body: `jobId`, optional `coverLetter`, `resumeUrl`. Rules: the job must be live
+and not deleted; no duplicate applications; cannot apply to a job you posted.
+→ `201 { application }` · `409` duplicate/inactive · `404` missing job.
+
+### `GET /api/v1/applications/me` — the candidate's applications _(Candidate)_
+
+Filter `status`; sort `createdAt`/`updatedAt`/`status`. → `200 { data, meta }`.
+
+### `GET /api/v1/jobs/:id/applications` — applicants for a job _(HR owner)_
+
+Filters: `status`, `minExperienceMonths`, `maxExperienceMonths`,
+`currentLocation`, `preferredLocation`, `highestEducation`, `college`,
+`currentCompany`, `skills` (csv), `keyword` (name/email/skills/company/college).
+Sort adds `experience`. → `200 { data: Applicant[], meta }` · `403` if not the owner.
+
+### `PATCH /api/v1/applications/:id/status` — advance an applicant _(HR owner)_
+
+Body: `status` (one of `UNDER_REVIEW`, `SHORTLISTED`, `INTERVIEW`, `OFFERED`,
+`HIRED`, `REJECTED`), optional `note`. → `200 { application }` · `400` invalid transition.
+
+### `PATCH /api/v1/applications/:id/withdraw` — withdraw _(Candidate owner)_ → `200 { application }`.
+
+---
+
+## Dashboard
+
+### `GET /api/v1/dashboard/candidate` _(Candidate)_
+
+Returns `profileCompletion`, `applicationCounts { total, byStatus }`,
+`recentApplications`, `recommendedJobs`, `recentJobs`, `savedCount`.
+
+### `GET /api/v1/dashboard/hr` _(HR)_
+
+Returns `totalJobs`, `activeJobs`, `closedJobs`, `totalApplicants`,
+`applicantStatusBreakdown`, `recentApplications`, `recentJobs`, `topPerformingJob`.

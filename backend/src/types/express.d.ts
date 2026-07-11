@@ -1,4 +1,5 @@
 import type { AuthUser } from '@/types/auth';
+import type { ValidatedData } from '@/types/http';
 
 /**
  * Augments the Express `Request` with the authenticated principal so that
@@ -11,5 +12,6 @@ import type { AuthUser } from '@/types/auth';
 declare module 'express-serve-static-core' {
   interface Request {
     user?: AuthUser;
+    validated?: ValidatedData;
   }
 }

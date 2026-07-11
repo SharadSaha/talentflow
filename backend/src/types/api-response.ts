@@ -1,3 +1,5 @@
+import type { PaginationMeta } from '@/types/pagination';
+
 /**
  * Shared API response contracts. Every endpoint returns one of these shapes so
  * clients can rely on a predictable structure.
@@ -13,6 +15,14 @@ export interface ApiSuccessResponse<TData> {
   success: true;
   message: string;
   data: TData;
+}
+
+/** Success response for paginated list endpoints. */
+export interface ApiPaginatedResponse<TItem> {
+  success: true;
+  message: string;
+  data: TItem[];
+  meta: PaginationMeta;
 }
 
 export interface ApiErrorResponse {
